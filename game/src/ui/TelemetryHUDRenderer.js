@@ -557,7 +557,8 @@ export class TelemetryHUDRenderer {
       640, 208,
     );
     // Post-run analytics.
-    const acc = w.shots > 0 ? Math.round((w.hits / w.shots) * 100) : 0;
+    // Hits can exceed shots (flak pellets, piercing lance), so cap at 100%.
+    const acc = w.shots > 0 ? Math.min(100, Math.round((w.hits / w.shots) * 100)) : 0;
     ctx.fillStyle = GOLD;
     ctx.font = 'bold 20px monospace';
     ctx.fillText(

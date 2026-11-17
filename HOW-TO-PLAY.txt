@@ -1,0 +1,31 @@
+GRAVITAS FORGE — HOW TO PLAY
+============================
+
+Defend the living Forge-Star at the heart of a miniature solar system.
+Survive all 7 waves and destroy the dreadnought THE VOID MAW to win.
+If the Forge-Star's Core Integrity hits zero, the Forge falls.
+
+CONTROLS
+  Mouse ......... aim (watch the dotted gravity arc — shots bend around moons)
+  Click ......... fire the star railgun
+  1 ............. build Railgun Turret (40 plasma)
+  2 ............. build Plasma Flak (60 plasma, 10 ore)
+  3 ............. build Gravity Repulsor (50 plasma, 20 ore)
+  4 ............. build Dyson Collector (30 plasma, +4 MW/s)
+  Q ............. boost decaying orbits back out (10 plasma)
+  X ............. Nova Burst (after unlocking it in the tech tree)
+  Click a tech name in the TECH TREE strip to buy it (8 techs, 2 superweapons)
+  P ............. pause
+  M ............. mute
+  Mouse wheel ... zoom the tactical camera
+  Enter / R ..... start / restart
+
+TIPS
+  - Shield-Cruisers take 75% less damage from the front. Bend your shots
+    around the moons (Vey and Ith) to hit their armored flanks.
+  - Shoot comets to harvest +15 Solar Plasma each.
+  - Structures decay inward over time — press Q before one burns up.
+  - Gravity Leeches drain your energy flow; kill them first.
+
+TO RUN THE FULL GAME (from the repo):
+  node serve.ts        then open http://localhost:8080

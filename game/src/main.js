@@ -188,7 +188,7 @@ function firePlayerSlug() {
     y: STAR_Y + Math.sin(a) * (STAR_R + 8),
     vx: Math.cos(a) * 520,
     vy: Math.sin(a) * 520,
-    dmg: 14,
+    dmg: 12,
     life: 2.5,
     pierce: 0,
     trail: [],
@@ -205,8 +205,16 @@ const TECH_PRIORITY = ['overcharge', 'rapid', 'siphon', 'lens', 'burst', 'reinfo
 
 function autoplayStep() {
   if (world.phase !== 'playing' || world.paused) return;
+  // Defense first: anything very close to the star outranks the boss.
+  let target = null;
+  let bestClose = Infinity;
+  for (const e of world.enemies) {
+    if (e.kind === 'dreadnought') continue;
+    const d = Math.hypot(e.x - STAR_X, e.y - STAR_Y);
+    if (d < 160 && d < bestClose) { bestClose = d; target = e; }
+  }
   // Aim at the most dangerous enemy: boss first, then nearest to the star.
-  let target = world.boss;
+  if (!target) target = world.boss;
   if (!target) {
     let bestScore = Infinity;
     for (const e of world.enemies) {
@@ -341,28 +349,42 @@ function autoplayStepTitle(dt) {
   world.paused = savedPaused;
 }
 
+// ---- fixed-step driver shared by staging and the debug handle ----
+
+function stepSim(seconds, driver) {
+  const steps = Math.round(seconds * 60);
+  for (let i = 0; i < steps; i++) {
+    if (world.fireCooldown > 0) world.fireCooldown -= FIXED_DT;
+    if (driver) driver();
+    if (world.phase === 'title') world.engine.demoStep(FIXED_DT, systems);
+    else world.engine.step(FIXED_DT, systems);
+    if (world.phase === 'won' || world.phase === 'lost') break;
+  }
+  render();
+}
+
 // ---- screenshot staging (?shot=) ----
 
 function stageShot(name) {
-  const runSteps = (n, driver) => {
-    for (let i = 0; i < n; i++) {
-      if (world.fireCooldown > 0) world.fireCooldown -= FIXED_DT;
-      if (driver) driver();
-      if (world.phase === 'title') world.engine.demoStep(FIXED_DT, systems);
-      else world.engine.step(FIXED_DT, systems);
-      if (world.phase === 'won' || world.phase === 'lost') break;
-    }
-  };
   if (name === 'title') {
     setupTitleDemo();
-    runSteps(60 * 8, null);
+    stepSim(14, null);
     world.aim.active = false;
   } else if (name === 'play') {
     world.engine.startRun();
     window.__gravitas.autoplay = true;
-    runSteps(60 * 55, autoplayStep);
+    // Fast-forward until wave 4 is in full swing, then freeze mid-fight.
+    let steps = 0;
+    while (steps < 60 * 300) {
+      if (world.fireCooldown > 0) world.fireCooldown -= FIXED_DT;
+      autoplayStep();
+      world.engine.step(FIXED_DT, systems);
+      steps++;
+      if (world.wave >= 4 && world.enemies.length >= 8) break;
+      if (world.phase === 'won' || world.phase === 'lost') break;
+    }
     window.__gravitas.autoplay = false;
-    world.aim.active = true;
+    aimAtNearestEnemy();
   } else if (name === 'boss') {
     world.engine.startRun();
     window.__gravitas.autoplay = true;
@@ -377,11 +399,43 @@ function stageShot(name) {
       if (world.phase === 'won' || world.phase === 'lost') break;
     }
     window.__gravitas.autoplay = false;
-    world.aim.active = true;
+    aimAtNearestEnemy();
+  } else if (name === 'win') {
+    world.engine.startRun();
+    window.__gravitas.autoplay = true;
+    // Fast-forward until the Forge wins the whole run.
+    let steps = 0;
+    while (steps < 60 * 600) {
+      if (world.fireCooldown > 0) world.fireCooldown -= FIXED_DT;
+      autoplayStep();
+      world.engine.step(FIXED_DT, systems);
+      steps++;
+      if (world.phase === 'won' || world.phase === 'lost') break;
+    }
+    window.__gravitas.autoplay = false;
+    world.aim.active = false;
   }
   frozen = true;
   render();
   window.__gravitas.shotReady = true;
+}
+
+// Point the aim (and its dotted gravity arc) at the nearest enemy.
+function aimAtNearestEnemy() {
+  let target = world.boss;
+  if (!target) {
+    let bestD = Infinity;
+    for (const e of world.enemies) {
+      const d = Math.hypot(e.x - STAR_X, e.y - STAR_Y);
+      if (d < bestD) { bestD = d; target = e; }
+    }
+  }
+  if (target) {
+    world.mouseX = target.x;
+    world.mouseY = target.y;
+    updateAim();
+    world.aim.active = true;
+  }
 }
 
 // ---- debug handle ----
@@ -412,10 +466,16 @@ window.__gravitas = {
     };
   },
   start() { world.engine.startRun(); },
-  build(kind) { return world.structures.build(kind); },
+  build(kind) { return world.structureManager.build(kind); },
   buy(id) { return world.tech.buy(id); },
-  boost() { return world.structures.boostAll(); },
+  boost() { return world.structureManager.boostAll(); },
   nova() { return world.tech.fireNova(); },
+  autoplayStep() { autoplayStep(); },
+  stepSim(seconds, useAutoplay) {
+    const driver = useAutoplay ? autoplayStep : null;
+    stepSim(seconds, driver);
+    return this.state();
+  },
 };
 
 const params = new URLSearchParams(location.search);

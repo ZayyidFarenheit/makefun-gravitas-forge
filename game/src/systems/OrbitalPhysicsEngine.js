@@ -92,7 +92,8 @@ export class OrbitalPhysicsEngine {
       const rr = e.radius + 4;
       if (dx * dx + dy * dy > rr * rr) continue;
       let dmg = p.dmg;
-      if (e.kind === 'cruiser' || e.kind === 'dreadnought') {
+      // The Singularity Lance pierces shields entirely.
+      if (p.from !== 'lance' && (e.kind === 'cruiser' || e.kind === 'dreadnought')) {
         // Facing: the cruiser's nose points at the star. A projectile whose
         // velocity points away from the star hits the armored flank/rear.
         const toStarX = STAR_X - e.x;
@@ -100,7 +101,10 @@ export class OrbitalPhysicsEngine {
         const toStarLen = Math.hypot(toStarX, toStarY) || 1;
         const velLen = Math.hypot(p.vx, p.vy) || 1;
         const facing = (p.vx * toStarX + p.vy * toStarY) / (velLen * toStarLen);
-        if (facing > 0.25) dmg = Math.max(1, Math.round(dmg * 0.25));
+        // Cruisers: 75% less from the front. The dreadnought's maw is thicker
+        // in front but its hide is thinner overall: 50% less from the front.
+        const frontMul = e.kind === 'dreadnought' ? 0.5 : 0.25;
+        if (facing > 0.25) dmg = Math.max(1, Math.round(dmg * frontMul));
       }
       w.hits++;
       this.damageEnemy(e, dmg, w, j);
@@ -176,6 +180,17 @@ export class OrbitalPhysicsEngine {
         w.engine.burst(e.x, e.y, 18, '#ff5d73', 170);
         w.engine.addShake(6);
         w.engine.addDamageNumber(STAR_X, STAR_Y - STAR_R - 14, '-' + e.dmg + ' CORE', '#ff5d73');
+        if (e.kind === 'dreadnought') {
+          // The maw does not die on impact: it tears a chunk out of the
+          // Forge and swings back out for another pass until it is killed.
+          const bx = (e.x - STAR_X) / d;
+          const by = (e.y - STAR_Y) / d;
+          e.x = STAR_X + bx * (STAR_R + e.radius + 12);
+          e.y = STAR_Y + by * (STAR_R + e.radius + 12);
+          e.vx = bx * e.speed * 1.6;
+          e.vy = by * e.speed * 1.6;
+          return;
+        }
         const idx = w.enemies.indexOf(e);
         if (idx >= 0) w.enemies.splice(idx, 1);
       }

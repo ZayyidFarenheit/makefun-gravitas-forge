@@ -8,22 +8,22 @@ import { STAR_X, STAR_Y } from '../core/SimulationEngine.js';
 // Enemy kinds. behavior: 'star' dives at the Forge-Star, 'leech' drains energy,
 // 'boss' is the dreadnought. shielded kinds take 75% less from the front.
 export const ENEMIES = {
-  asteroid: { name: 'Asteroid', hp: 22, speed: 70, radius: 13, dmg: 8, score: 10, ore: 2, color: '#b08968', behavior: 'star', desc: 'dives at the Forge' },
-  cruiser: { name: 'Shield-Cruiser', hp: 65, speed: 42, radius: 18, dmg: 10, score: 25, ore: 5, color: '#4cc9f0', behavior: 'star', desc: 'armored front — flank it' },
-  leech: { name: 'Gravity Leech', hp: 40, speed: 60, radius: 12, dmg: 6, score: 20, ore: 4, color: '#f72585', behavior: 'leech', desc: 'drains energy flow' },
+  asteroid: { name: 'Asteroid', hp: 32, speed: 85, radius: 13, dmg: 10, score: 10, ore: 2, color: '#b08968', behavior: 'star', desc: 'dives at the Forge' },
+  cruiser: { name: 'Shield-Cruiser', hp: 95, speed: 48, radius: 18, dmg: 12, score: 25, ore: 5, color: '#4cc9f0', behavior: 'star', desc: 'armored front — flank it' },
+  leech: { name: 'Gravity Leech', hp: 55, speed: 60, radius: 12, dmg: 8, score: 20, ore: 4, color: '#f72585', behavior: 'leech', desc: 'drains energy flow' },
   comet: { name: 'Comet', hp: 12, speed: 85, radius: 11, dmg: 0, score: 5, ore: 0, color: '#7df9ff', behavior: 'harvest', desc: 'shoot to harvest plasma' },
-  dreadnought: { name: 'THE VOID MAW', hp: 1400, speed: 24, radius: 64, dmg: 25, score: 500, ore: 60, color: '#2b0a3d', behavior: 'boss', desc: 'eats stars, spawns leeches' },
+  dreadnought: { name: 'THE VOID MAW', hp: 1700, speed: 40, radius: 64, dmg: 30, score: 500, ore: 60, color: '#2b0a3d', behavior: 'boss', desc: 'eats stars, spawns leeches' },
 };
 
 // [kind, count, gapSeconds] per wave. Wave 7 is the boss plus a trickle.
 export const WAVES = {
-  1: [['asteroid', 12, 0.9]],
-  2: [['asteroid', 8, 1.0], ['cruiser', 4, 1.6], ['comet', 4, 2.2]],
-  3: [['asteroid', 10, 0.9], ['cruiser', 5, 1.4], ['leech', 3, 2.0], ['comet', 5, 2.0]],
-  4: [['asteroid', 12, 0.8], ['cruiser', 6, 1.3], ['leech', 4, 1.8], ['comet', 6, 1.8]],
-  5: [['asteroid', 12, 0.8], ['cruiser', 8, 1.2], ['leech', 6, 1.6], ['comet', 6, 1.6]],
-  6: [['asteroid', 14, 0.7], ['cruiser', 8, 1.1], ['leech', 6, 1.5], ['comet', 8, 1.4]],
-  7: [['cruiser', 6, 2.0], ['leech', 4, 2.4], ['asteroid', 8, 1.2]],
+  1: [['asteroid', 16, 0.8]],
+  2: [['asteroid', 10, 0.9], ['cruiser', 6, 1.5], ['comet', 4, 2.2]],
+  3: [['asteroid', 14, 0.8], ['cruiser', 7, 1.3], ['leech', 4, 1.9], ['comet', 5, 2.0]],
+  4: [['asteroid', 16, 0.55], ['cruiser', 8, 1.0], ['leech', 5, 1.4], ['comet', 6, 1.5]],
+  5: [['asteroid', 18, 0.55], ['cruiser', 12, 0.9], ['leech', 7, 1.2], ['comet', 6, 1.3]],
+  6: [['asteroid', 20, 0.5], ['cruiser', 12, 0.8], ['leech', 8, 1.1], ['comet', 8, 1.2]],
+  7: [['cruiser', 5, 1.9], ['leech', 4, 2.2], ['asteroid', 6, 1.1]],
 };
 
 export const TOTAL_WAVES = 7;
@@ -127,7 +127,7 @@ export class FleetWaveDirector {
       }
     }
     // The dreadnought spawns leeches while it lives.
-    if (w.boss && w.boss.hp > 0 && Math.random() < dt * 0.25) {
+    if (w.boss && w.boss.hp > 0 && Math.random() < dt * 0.12) {
       const def = ENEMIES.leech;
       const a = Math.random() * Math.PI * 2;
       w.enemies.push(this.makeEnemy('leech', def, w.boss.x + Math.cos(a) * 80, w.boss.y + Math.sin(a) * 80));
@@ -150,12 +150,12 @@ export class FleetWaveDirector {
     const w = this.world;
     this.demoTimer -= dt;
     if (this.demoTimer <= 0) {
-      this.demoTimer = 1.4;
+      this.demoTimer = 0.9;
       const kinds = ['asteroid', 'asteroid', 'cruiser', 'comet'];
       const kind = kinds[Math.floor(Math.random() * kinds.length)];
-      if (w.enemies.length < 10) this.spawn(kind);
+      if (w.enemies.length < 12) this.spawn(kind);
       else if (w.comets.length < 3) this.spawn('comet');
     }
-    if (w.enemies.length > 14) w.enemies.splice(0, w.enemies.length - 14);
+    if (w.enemies.length > 16) w.enemies.splice(0, w.enemies.length - 16);
   }
 }

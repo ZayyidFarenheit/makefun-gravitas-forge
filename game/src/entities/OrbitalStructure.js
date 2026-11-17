@@ -7,10 +7,10 @@
 import { STAR_X, STAR_Y } from '../core/SimulationEngine.js';
 
 export const STRUCTURE_DEFS = {
-  turret: { name: 'Railgun Turret', key: '1', cost: { plasma: 40, ore: 0 }, orbitR: 150, dmg: 10, rate: 1.2, range: 380, color: '#ffd166', desc: 'shoots nearest foe' },
-  flak: { name: 'Plasma Flak', key: '2', cost: { plasma: 60, ore: 10 }, orbitR: 210, dmg: 6, rate: 0.8, range: 300, color: '#ff7b00', desc: '3-pellet burst, AoE' },
+  turret: { name: 'Railgun Turret', key: '1', cost: { plasma: 40, ore: 0 }, orbitR: 150, dmg: 9, rate: 1.2, range: 330, color: '#ffd166', desc: 'shoots nearest foe' },
+  flak: { name: 'Plasma Flak', key: '2', cost: { plasma: 60, ore: 10 }, orbitR: 210, dmg: 5, rate: 0.8, range: 260, color: '#ff7b00', desc: '3-pellet burst, AoE' },
   repulsor: { name: 'Gravity Repulsor', key: '3', cost: { plasma: 50, ore: 20 }, orbitR: 180, dmg: 0, rate: 0, range: 170, color: '#7df9ff', desc: 'pushes foes away' },
-  dyson: { name: 'Dyson Collector', key: '4', cost: { plasma: 30, ore: 0 }, orbitR: 260, dmg: 0, rate: 0, range: 0, color: '#f72585', desc: '+6 MW/s plasma' },
+  dyson: { name: 'Dyson Collector', key: '4', cost: { plasma: 30, ore: 0 }, orbitR: 260, dmg: 0, rate: 0, range: 0, color: '#f72585', desc: '+4 MW/s plasma' },
 };
 
 export const MAX_STRUCTURES = 8;
@@ -59,7 +59,9 @@ export class OrbitalStructure {
     const dmgMul = w.tech.owned.has('overcharge') ? 1.25 : 1;
     if (this.kind === 'repulsor') {
       // Push enemies away from the star inside the repulsor field.
+      // The dreadnought is too massive to move.
       for (const e of w.enemies) {
+        if (e.kind === 'dreadnought') continue;
         const dx = e.x - STAR_X;
         const dy = e.y - STAR_Y;
         const d = Math.hypot(dx, dy) || 1;

@@ -52,7 +52,7 @@ export class TechTreeManager {
   plasmaRate() {
     const w = this.world;
     const dysons = w.structures.filter((s) => s.kind === 'dyson').length;
-    let rate = 2 + dysons * 6;
+    let rate = 1.5 + dysons * 4;
     if (this.owned.has('siphon')) rate *= 1.5;
     const leeches = w.enemies.filter((e) => e.kind === 'leech').length;
     rate = Math.max(0, rate - leeches * 1.5);
