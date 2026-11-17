@@ -141,7 +141,6 @@ export class TelemetryHUDRenderer {
       ctx.arc(STAR_X, STAR_Y, s.orbitR, 0, Math.PI * 2);
       ctx.stroke();
       // Decay warning: the ring turns red as the orbit decays.
-      const decayFrac = (s.orbitR - 110) / (s.nominalR - 110);
       ctx.fillStyle = s.color;
       ctx.save();
       ctx.translate(s.x, s.y);
@@ -179,11 +178,23 @@ export class TelemetryHUDRenderer {
         }
       }
       ctx.restore();
-      if (decayFrac < 0.35) {
+      // Decay warning: shown as soon as a boost can actually help (more
+      // than 12px below the nominal ring), large enough to read, and pushed
+      // radially outward from the star so it never covers the FORGE-STAR
+      // caption underneath a low, decayed structure.
+      if (s.orbitR < s.nominalR - 12) {
+        const dx = s.x - STAR_X;
+        const dy = s.y - STAR_Y;
+        const d = Math.hypot(dx, dy) || 1;
+        const lx = s.x + (dx / d) * 18;
+        const ly = s.y + (dy / d) * 18 - 10;
         ctx.fillStyle = RED;
-        ctx.font = 'bold 10px monospace';
+        ctx.font = 'bold 13px monospace';
         ctx.textAlign = 'center';
-        ctx.fillText('DECAY! Q', s.x, s.y - 14);
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+        ctx.lineWidth = 3;
+        ctx.strokeText('DECAY! Q', lx, ly);
+        ctx.fillText('DECAY! Q', lx, ly);
       }
     }
   }
@@ -463,20 +474,42 @@ export class TelemetryHUDRenderer {
     }
   }
 
+  // Q boost state in plain words, updated every frame: READY when a boost
+  // would actually do something, otherwise the exact reason it would not.
+  qBoostStatus() {
+    const w = this.world;
+    if (!w.structures.length) return { text: 'Q boost — no structures', ready: false };
+    if (!w.structureManager.needyStructures().length) return { text: 'Q boost — no decay yet', ready: false };
+    if (w.plasma < 10) return { text: 'Q boost — need 10 plasma', ready: false };
+    return { text: 'Q boost READY', ready: true };
+  }
+
   drawControls(ctx, w) {
-    ctx.fillStyle = 'rgba(5, 8, 20, 0.72)';
+    // A failed key press flashes the whole controls row grey for half a
+    // second so the player sees the game heard them (world.controlsFlash).
+    ctx.fillStyle = w.controlsFlash > 0 ? 'rgba(150, 160, 180, 0.45)' : 'rgba(5, 8, 20, 0.72)';
     ctx.fillRect(0, 692, 1280, 28);
-    ctx.fillStyle = '#9fb3c8';
     ctx.font = '12px monospace';
-    ctx.textAlign = 'center';
     const nova = w.tech.owned.has('nova')
       ? 'X nova' + (w.novaCooldown > 0 ? ' (' + Math.ceil(w.novaCooldown) + 's)' : ' READY')
       : 'X nova (locked)';
-    ctx.fillText(
-      'Mouse aim · Click fire · 1-4 build · Q boost orbits · ' + nova +
-      ' · P pause · M mute · wheel zoom',
-      640, 710,
-    );
+    const q = this.qBoostStatus();
+    // Draw the row in segments so the Q state can glow green when ready.
+    const segs = [
+      { text: 'Mouse aim · Click fire · 1-4 build · ', color: '#9fb3c8' },
+      { text: q.text, color: q.ready ? GREEN : '#9fb3c8' },
+      { text: ' · ' + nova + ' · P pause · M mute · wheel zoom', color: '#9fb3c8' },
+    ];
+    let total = 0;
+    for (const s of segs) total += ctx.measureText(s.text).width;
+    let x = 640 - total / 2;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    for (const s of segs) {
+      ctx.fillStyle = s.color;
+      ctx.fillText(s.text, x, 710);
+      x += ctx.measureText(s.text).width;
+    }
   }
 
   drawBossBar(ctx, w) {
@@ -503,10 +536,17 @@ export class TelemetryHUDRenderer {
     if (!aim || !aim.active) return;
     const pts = w.physics.predictTrajectory(STAR_X, STAR_Y, aim.vx, aim.vy, 90, 1 / 60);
     if (pts.length < 3) return;
-    ctx.fillStyle = 'rgba(125, 249, 255, 0.85)';
+    // A faint spine under the dots so the curve reads at thumbnail size.
+    ctx.strokeStyle = 'rgba(125, 249, 255, 0.30)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (const p of pts) ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(125, 249, 255, 0.9)';
     for (const p of pts) {
       ctx.beginPath();
-      ctx.arc(p.x, p.y, 2.2, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, 3.2, 0, Math.PI * 2);
       ctx.fill();
     }
   }

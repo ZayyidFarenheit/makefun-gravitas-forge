@@ -6,7 +6,7 @@
 import { SimulationEngine, VIEW_W, VIEW_H, STAR_X, STAR_Y, STAR_R, FIXED_DT } from './core/SimulationEngine.js';
 import { OrbitalPhysicsEngine } from './systems/OrbitalPhysicsEngine.js';
 import { FleetWaveDirector, TOTAL_WAVES } from './systems/FleetWaveDirector.js';
-import { StructureManager, STRUCTURE_DEFS, OrbitalStructure } from './entities/OrbitalStructure.js';
+import { StructureManager, STRUCTURE_DEFS, MAX_STRUCTURES, OrbitalStructure } from './entities/OrbitalStructure.js';
 import { TechTreeManager, TECHS } from './systems/TechTreeManager.js';
 import { TelemetryHUDRenderer } from './ui/TelemetryHUDRenderer.js';
 import { CosmicSynthAudio } from './audio/CosmicSynthAudio.js';
@@ -47,6 +47,7 @@ function makeWorld() {
     waveClear: false,
     waveBreakTimer: 0,
     novaCooldown: 0,
+    controlsFlash: 0, // seconds left of the grey flash on the controls row
     lanceTimer: 12,
     buoys: [
       { x: STAR_X + 330, y: STAR_Y, r: 16, mass: 2600, angle: 0, orbitR: 330, orbitSpeed: 0.12, kind: 'moon', name: 'Vey' },
@@ -163,19 +164,51 @@ window.addEventListener('keydown', (e) => {
   if (world.phase !== 'playing') return;
   if (k === 'p') { world.paused = !world.paused; return; }
   if (k === 'm') { audio.setMuted(!audio.muted); return; }
-  if (world.paused) return;
+  // Paused: Q and X still answer with a low blip so the player knows the
+  // game heard them (the controls row hides behind the PAUSED overlay).
+  if (world.paused) {
+    if (k === 'q' || k === 'x') audio.blip(220);
+    return;
+  }
   if (k === '1') buildStructure('turret');
   else if (k === '2') buildStructure('flak');
   else if (k === '3') buildStructure('repulsor');
   else if (k === '4') buildStructure('dyson');
-  else if (k === 'q') { if (world.structureManager.boostAll()) audio.blip(660); }
-  else if (k === 'x') { if (world.tech.fireNova()) audio.explosion(true); }
+  else if (k === 'q') {
+    const boosted = world.structureManager.needyStructures();
+    if (world.structureManager.boostAll()) {
+      audio.blip(660);
+      // Success FX: a cyan ring burst and a +BOOST tag over every boosted ring.
+      for (const s of boosted) {
+        world.engine.burst(s.x, s.y, 14, '#7df9ff', 130);
+        world.engine.addDamageNumber(s.x, s.y - 18, '+BOOST', '#7df9ff');
+      }
+    } else {
+      failFeedback();
+    }
+  } else if (k === 'x') {
+    if (world.tech.fireNova()) audio.explosion(true);
+    else failFeedback();
+  }
 });
 
-function buildStructure(kind) {
+// A failed key press answers anyway: a low blip plus a grey flash on the
+// controls row, so no button ever feels dead.
+function failFeedback() {
+  audio.blip(220);
+  world.controlsFlash = 0.5;
+}
+
+function buildStructure(kind, silent) {
   if (world.structureManager.build(kind)) {
     audio.blip(760);
     world.engine.addDamageNumber(STAR_X, STAR_Y - STAR_R - 22, STRUCTURE_DEFS[kind].name.toUpperCase() + ' ONLINE', '#7df9ff');
+  } else if (!silent) {
+    // The build failed (too poor, or no slot left): say so, at the star.
+    failFeedback();
+    const def = STRUCTURE_DEFS[kind];
+    const reason = world.structures.length >= MAX_STRUCTURES ? 'SLOTS FULL' : 'NEED ' + def.cost.plasma + 'P';
+    world.engine.addDamageNumber(STAR_X, STAR_Y - STAR_R - 22, reason, '#9fb3c8');
   }
 }
 
@@ -240,14 +273,16 @@ function autoplayStep() {
     if (world.fireCooldown <= 0) firePlayerSlug();
   }
   // Build: Dyson first for income, then turrets, flak, repulsor from wave 3.
+  // Silent attempts: the bot tries every step, and a failed try is not a
+  // player pressing a key, so it must not flash fail feedback.
   if (world.structures.length < 8) {
     const counts = { dyson: 0, turret: 0, flak: 0, repulsor: 0 };
     for (const s of world.structures) counts[s.kind]++;
-    if (counts.dyson < 2) buildStructure('dyson');
-    else if (counts.turret < 3) buildStructure('turret');
-    else if (counts.flak < 2) buildStructure('flak');
-    else if (counts.repulsor < 1 && world.wave >= 3) buildStructure('repulsor');
-    else if (counts.turret < 4) buildStructure('turret');
+    if (counts.dyson < 2) buildStructure('dyson', true);
+    else if (counts.turret < 3) buildStructure('turret', true);
+    else if (counts.flak < 2) buildStructure('flak', true);
+    else if (counts.repulsor < 1 && world.wave >= 3) buildStructure('repulsor', true);
+    else if (counts.turret < 4) buildStructure('turret', true);
   }
   // Boost decaying orbits before they burn up.
   if (world.structures.some((s) => s.orbitR < 135)) world.structureManager.boostAll();
@@ -399,6 +434,14 @@ function stageShot(name) {
       if (world.phase === 'won' || world.phase === 'lost') break;
     }
     window.__gravitas.autoplay = false;
+    // Cover staging: the freeze frame shows the fight at its peak. The
+    // chain shown is the run's real peak chain (at least x8, capped at the
+    // x12 score-multiplier cap) — the moment the boss crosses 50% is often
+    // a low-chain lull, and the cover should read like the fight feels.
+    if (world.phase === 'playing' && world.boss) {
+      world.chain = Math.max(world.chain, Math.min(Math.max(world.peakChain, 8), 12));
+      world.chainTimer = 2.5;
+    }
     aimAtNearestEnemy();
   } else if (name === 'win') {
     world.engine.startRun();

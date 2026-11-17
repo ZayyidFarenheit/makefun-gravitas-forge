@@ -127,10 +127,16 @@ export class StructureManager {
     return true;
   }
 
+  // Structures whose orbit has decayed far enough that a boost helps:
+  // more than 12px below their nominal ring (about 22 seconds of decay).
+  needyStructures() {
+    return this.world.structures.filter((s) => s.orbitR < s.nominalR - 12);
+  }
+
   // Boost every decaying structure back to its nominal orbit.
   boostAll() {
     const w = this.world;
-    const needy = w.structures.filter((s) => s.orbitR < s.nominalR - 12);
+    const needy = this.needyStructures();
     if (!needy.length) return false;
     if (w.plasma < 10) return false;
     w.plasma -= 10;

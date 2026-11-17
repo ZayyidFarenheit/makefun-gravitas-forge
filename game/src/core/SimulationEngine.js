@@ -51,6 +51,7 @@ export class SimulationEngine {
     w.waveClear = false;
     w.waveBreakTimer = 0;
     w.novaCooldown = 0;
+    w.controlsFlash = 0;
     w.lanceTimer = 12;
     w.threat = 0;
     w.bossDefeated = false;
@@ -87,6 +88,7 @@ export class SimulationEngine {
     if (w.phase !== 'playing' || w.paused) return;
     w.time += dt;
     if (w.novaCooldown > 0) w.novaCooldown -= dt;
+    if (w.controlsFlash > 0) w.controlsFlash -= dt;
     if (w.chainTimer > 0) {
       w.chainTimer -= dt;
       if (w.chainTimer <= 0) w.chain = 0;
