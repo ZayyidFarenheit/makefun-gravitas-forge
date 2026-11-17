@@ -1,0 +1,249 @@
+// GRAVITAS FORGE — core/SimulationEngine.js
+// One job: the fixed-timestep physics accumulator, the zoomable tactical camera,
+// screen shake, and the game state controller (title -> playing -> won/lost).
+// It owns the world object and drives every system once per fixed step.
+
+export const VIEW_W = 1280;
+export const VIEW_H = 720;
+export const STAR_X = 640;
+export const STAR_Y = 360;
+export const STAR_R = 52;
+export const FIXED_DT = 1 / 60;
+export const MAX_CORE = 100;
+
+export class SimulationEngine {
+  constructor(world) {
+    this.world = world;
+    this.accumulator = 0;
+    this.lastTime = 0;
+    this.camera = { zoom: 1, targetZoom: 1, shake: 0, shakeX: 0, shakeY: 0 };
+  }
+
+  // Start a fresh run: clear the field, reset the economy, open wave 1.
+  startRun() {
+    const w = this.world;
+    w.phase = 'playing';
+    w.paused = false;
+    w.time = 0;
+    w.wave = 0;
+    w.score = 0;
+    w.chain = 0;
+    w.chainTimer = 0;
+    w.plasma = 80;
+    w.ore = 20;
+    w.core = MAX_CORE;
+    w.kills = 0;
+    w.shots = 0;
+    w.hits = 0;
+    w.plasmaEarned = 0;
+    w.oreEarned = 0;
+    w.structuresBuilt = 0;
+    w.novaUsed = 0;
+    w.lanceFired = 0;
+    w.peakChain = 0;
+    w.enemies = [];
+    w.projectiles = [];
+    w.particles = [];
+    w.damageNumbers = [];
+    w.structures = [];
+    w.comets = [];
+    w.boss = null;
+    w.waveClear = false;
+    w.waveBreakTimer = 0;
+    w.novaCooldown = 0;
+    w.lanceTimer = 12;
+    w.threat = 0;
+    w.bossDefeated = false;
+    // Two pre-placed gravity moons orbit the star and bend every shot.
+    w.buoys = [
+      { x: STAR_X + 330, y: STAR_Y, r: 16, mass: 2600, angle: 0, orbitR: 330, orbitSpeed: 0.12, kind: 'moon', name: 'Vey' },
+      { x: STAR_X - 300, y: STAR_Y, r: 13, mass: 2000, angle: Math.PI, orbitR: 300, orbitSpeed: -0.16, kind: 'moon', name: 'Ith' },
+    ];
+    w.tech.reset();
+    w.director.startWave(1);
+  }
+
+  // Fixed-step driver: called every animation frame with the frame time.
+  // Returns false when the run should stop advancing (title demo handles itself).
+  frame(now, stepFn) {
+    if (!this.lastTime) this.lastTime = now;
+    let frameDt = (now - this.lastTime) / 1000;
+    this.lastTime = now;
+    if (frameDt > 0.25) frameDt = 0.25; // tab-switch guard
+    this.accumulator += frameDt;
+    let steps = 0;
+    while (this.accumulator >= FIXED_DT && steps < 5) {
+      stepFn(FIXED_DT);
+      this.accumulator -= FIXED_DT;
+      steps++;
+    }
+    if (steps === 5) this.accumulator = 0;
+    this.updateCamera(FIXED_DT);
+  }
+
+  // One fixed step of the whole world (playing phase only).
+  step(dt, systems) {
+    const w = this.world;
+    if (w.phase !== 'playing' || w.paused) return;
+    w.time += dt;
+    if (w.novaCooldown > 0) w.novaCooldown -= dt;
+    if (w.chainTimer > 0) {
+      w.chainTimer -= dt;
+      if (w.chainTimer <= 0) w.chain = 0;
+    }
+    // Moons orbit the star; their gravity bends projectiles.
+    for (const b of w.buoys) {
+      b.angle += b.orbitSpeed * dt;
+      b.x = STAR_X + Math.cos(b.angle) * b.orbitR;
+      b.y = STAR_Y + Math.sin(b.angle) * b.orbitR;
+    }
+    systems.physics.step(dt);
+    systems.director.update(dt);
+    systems.structures.update(dt);
+    systems.tech.update(dt);
+    this.updateParticles(dt);
+    this.updateDamageNumbers(dt);
+    this.checkWaveClear(dt);
+    this.checkEnd(dt);
+  }
+
+  // Title-screen demo: a living AI battle runs behind the title card.
+  demoStep(dt, systems) {
+    const w = this.world;
+    if (w.phase !== 'title') return;
+    w.time += dt;
+    for (const b of w.buoys) {
+      b.angle += b.orbitSpeed * dt;
+      b.x = STAR_X + Math.cos(b.angle) * b.orbitR;
+      b.y = STAR_Y + Math.sin(b.angle) * b.orbitR;
+    }
+    systems.physics.step(dt);
+    systems.director.demoUpdate(dt);
+    systems.structures.update(dt);
+    this.updateParticles(dt);
+    this.updateDamageNumbers(dt);
+  }
+
+  updateParticles(dt) {
+    const w = this.world;
+    for (let i = w.particles.length - 1; i >= 0; i--) {
+      const p = w.particles[i];
+      p.life -= dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vx *= 0.98;
+      p.vy *= 0.98;
+      if (p.life <= 0) w.particles.splice(i, 1);
+    }
+  }
+
+  updateDamageNumbers(dt) {
+    const w = this.world;
+    for (let i = w.damageNumbers.length - 1; i >= 0; i--) {
+      const d = w.damageNumbers[i];
+      d.life -= dt;
+      d.y -= 34 * dt;
+      if (d.life <= 0) w.damageNumbers.splice(i, 1);
+    }
+  }
+
+  addDamageNumber(x, y, text, color) {
+    const w = this.world;
+    if (w.damageNumbers.length > 60) w.damageNumbers.shift();
+    w.damageNumbers.push({ x, y, text, color, life: 0.9 });
+  }
+
+  burst(x, y, count, color, speed) {
+    const w = this.world;
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const s = (speed || 120) * (0.4 + Math.random() * 0.8);
+      w.particles.push({
+        x, y,
+        vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+        life: 0.4 + Math.random() * 0.5,
+        maxLife: 0.9,
+        color, size: 1.5 + Math.random() * 2.5,
+      });
+    }
+    if (w.particles.length > 420) w.particles.splice(0, w.particles.length - 420);
+  }
+
+  addShake(amount) {
+    this.camera.shake = Math.min(14, this.camera.shake + amount);
+  }
+
+  updateCamera(dt) {
+    const c = this.camera;
+    c.zoom += (c.targetZoom - c.zoom) * Math.min(1, dt * 6);
+    if (c.shake > 0.2) {
+      c.shakeX = (Math.random() - 0.5) * c.shake;
+      c.shakeY = (Math.random() - 0.5) * c.shake;
+      c.shake *= Math.pow(0.02, dt);
+    } else {
+      c.shake = 0;
+      c.shakeX = 0;
+      c.shakeY = 0;
+    }
+  }
+
+  zoomAt(factor) {
+    this.camera.targetZoom = Math.max(0.6, Math.min(1.7, this.camera.targetZoom * factor));
+  }
+
+  // Apply a screen-space transform: zoom about the star, then shake.
+  applyCamera(ctx) {
+    const c = this.camera;
+    ctx.translate(STAR_X + c.shakeX, STAR_Y + c.shakeY);
+    ctx.scale(c.zoom, c.zoom);
+    ctx.translate(-STAR_X, -STAR_Y);
+  }
+
+  checkWaveClear(dt) {
+    const w = this.world;
+    if (w.waveClear) {
+      w.waveBreakTimer -= dt;
+      if (w.waveBreakTimer <= 0) {
+        w.waveClear = false;
+        if (w.wave < 7) w.director.startWave(w.wave + 1);
+      }
+      return;
+    }
+    if (w.director.waveActive && w.enemies.length === 0 && !w.director.spawnQueue.length && !w.boss) {
+      w.waveClear = true;
+      w.waveBreakTimer = 3;
+      w.plasma += 25 + w.wave * 5;
+      w.ore += 10 + w.wave * 3;
+      w.plasmaEarned += 25 + w.wave * 5;
+      w.oreEarned += 10 + w.wave * 3;
+    }
+  }
+
+  checkEnd(dt) {
+    const w = this.world;
+    if (w.core <= 0) {
+      w.core = 0;
+      w.phase = 'lost';
+      this.burst(STAR_X, STAR_Y, 90, '#ffb347', 260);
+      this.addShake(14);
+      return;
+    }
+    if (w.bossDefeated && w.enemies.length === 0 && !w.director.spawnQueue.length) {
+      w.phase = 'won';
+    }
+  }
+
+  // A kill feeds score, chain, ore and the analytics counters.
+  registerKill(enemy) {
+    const w = this.world;
+    w.kills++;
+    w.chain++;
+    w.chainTimer = 2.5;
+    if (w.chain > w.peakChain) w.peakChain = w.chain;
+    const mult = 1 + Math.min(w.chain, 12) * 0.1;
+    const gained = Math.round(enemy.score * mult);
+    w.score += gained;
+    w.ore += enemy.ore;
+    w.oreEarned += enemy.ore;
+  }
+}
