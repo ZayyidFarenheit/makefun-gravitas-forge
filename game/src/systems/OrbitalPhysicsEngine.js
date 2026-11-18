@@ -178,7 +178,7 @@ export class OrbitalPhysicsEngine {
     // number, a high chime, and a counter the debug handle can verify.
     if (flank && (e.kind === 'cruiser' || e.kind === 'dreadnought')) {
       w.flankHits++;
-      w.engine.addDamageNumber(e.x, e.y - e.radius - 26, 'FLANK!', '#ffe08a', 16);
+      w.engine.addDamageNumber(e.x, e.y - e.radius - 26, 'FLANK!', '#ffe08a', 28);
       if (w.audio) w.audio.flankHit();
     }
     w.engine.burst(e.x, e.y, 4, '#ffb347', 90);

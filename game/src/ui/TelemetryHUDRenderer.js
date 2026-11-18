@@ -32,11 +32,31 @@ export class TelemetryHUDRenderer {
     this.drawProjectiles(ctx, w);
     this.drawParticles(ctx, w);
     this.drawDamageNumbers(ctx, w);
+    // The aim arc lives in world space (not the HUD): it is a trajectory
+    // prediction, so it must ride the camera zoom like everything else —
+    // drawn from the HUD it pointed at the wrong place whenever zoomed.
+    if (w.phase === 'playing') this.drawAimArc(ctx, w);
   }
 
   drawStarfield(ctx, w) {
     ctx.fillStyle = '#05030d';
     ctx.fillRect(0, 0, 1280, 720);
+    // Faint nebulae so the field never reads as empty black: five static,
+    // very low-alpha clouds (visual only, fixed positions, deterministic).
+    const nebulae = [
+      { x: 180, y: 130, r: 260, c: '42, 10, 74' },
+      { x: 1100, y: 150, r: 240, c: '10, 42, 58' },
+      { x: 1050, y: 600, r: 280, c: '58, 10, 42' },
+      { x: 220, y: 620, r: 220, c: '10, 42, 58' },
+      { x: 640, y: 360, r: 340, c: '58, 32, 10' },
+    ];
+    for (const n of nebulae) {
+      const g = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.r);
+      g.addColorStop(0, 'rgba(' + n.c + ', 0.16)');
+      g.addColorStop(1, 'rgba(' + n.c + ', 0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(n.x - n.r, n.y - n.r, n.r * 2, n.r * 2);
+    }
     // Deterministic starfield from the world's seed stars.
     ctx.save();
     for (const s of w.stars) {
@@ -338,7 +358,7 @@ export class TelemetryHUDRenderer {
   drawDamageNumbers(ctx, w) {
     ctx.textAlign = 'center';
     for (const d of w.damageNumbers) {
-      // FLANK! tags ride bigger (size 16); plain damage stays 13.
+      // FLANK! tags ride bigger (size 28); plain damage stays 13.
       ctx.font = 'bold ' + (d.size || 13) + 'px monospace';
       ctx.globalAlpha = Math.min(1, d.life / 0.5);
       ctx.fillStyle = d.color;
@@ -358,7 +378,9 @@ export class TelemetryHUDRenderer {
     this.drawControls(ctx, w);
     if (w.boss) this.drawBossBar(ctx, w);
     if (w.phaseBanner) this.drawPhaseBanner(ctx, w);
-    if (w.phase === 'playing') this.drawAimArc(ctx, w);
+    // Big CHAIN callout while a streak is hot: the top-1 covers shout their
+    // chain in giant text, and the top bar alone reads too small.
+    if (w.phase === 'playing' && w.chain >= 8 && w.chainTimer > 0) this.drawChainCallout(ctx, w);
   }
 
   panel(ctx, x, y, pw, ph, title) {
@@ -375,11 +397,11 @@ export class TelemetryHUDRenderer {
 
   drawTopBar(ctx, w) {
     ctx.fillStyle = 'rgba(5, 8, 20, 0.72)';
-    ctx.fillRect(0, 0, 1280, 40);
+    ctx.fillRect(0, 0, 1280, 58);
     ctx.strokeStyle = 'rgba(125, 249, 255, 0.35)';
     ctx.beginPath();
-    ctx.moveTo(0, 40.5);
-    ctx.lineTo(1280, 40.5);
+    ctx.moveTo(0, 58.5);
+    ctx.lineTo(1280, 58.5);
     ctx.stroke();
     ctx.textAlign = 'left';
     ctx.font = 'bold 17px monospace';
@@ -398,38 +420,59 @@ export class TelemetryHUDRenderer {
     ctx.font = 'bold 15px monospace';
     ctx.textAlign = 'right';
     ctx.fillText(state, 1264, 27);
+    // Row 2: the win and lose conditions in plain words, centered — the
+    // top entries state both, so the goal reads at a glance.
+    const winLose = [
+      { text: 'WIN', color: GREEN, bold: true },
+      { text: ' Hold 7 waves, break The Void Maw   ·   ', color: '#9fb3c8', bold: false },
+      { text: 'LOSE', color: RED, bold: true },
+      { text: ' Forge-Star falls to 0', color: '#9fb3c8', bold: false },
+    ];
+    let total = 0;
+    for (const s of winLose) {
+      ctx.font = (s.bold ? 'bold ' : '') + '12px monospace';
+      total += ctx.measureText(s.text).width;
+    }
+    let x = 640 - total / 2;
+    ctx.textAlign = 'left';
+    for (const s of winLose) {
+      ctx.font = (s.bold ? 'bold ' : '') + '12px monospace';
+      ctx.fillStyle = s.color;
+      ctx.fillText(s.text, x, 50);
+      x += ctx.measureText(s.text).width;
+    }
   }
 
   drawLeftPanel(ctx, w) {
-    this.panel(ctx, 12, 52, 210, 168, 'FORGE-STAR');
+    this.panel(ctx, 12, 64, 210, 168, 'FORGE-STAR');
     ctx.textAlign = 'left';
     // Core Integrity bar.
     ctx.fillStyle = '#9fb3c8';
     ctx.font = '11px monospace';
-    ctx.fillText('CORE INTEGRITY', 20, 88);
+    ctx.fillText('CORE INTEGRITY', 20, 100);
     const frac = Math.max(0, w.core / MAX_CORE);
     ctx.fillStyle = 'rgba(255,255,255,0.15)';
-    ctx.fillRect(20, 96, 194, 14);
+    ctx.fillRect(20, 108, 194, 14);
     ctx.fillStyle = frac > 0.5 ? GREEN : frac > 0.25 ? GOLD : RED;
-    ctx.fillRect(20, 96, 194 * frac, 14);
+    ctx.fillRect(20, 108, 194 * frac, 14);
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 12px monospace';
-    ctx.fillText(Math.ceil(w.core) + ' / ' + MAX_CORE, 20, 126);
+    ctx.fillText(Math.ceil(w.core) + ' / ' + MAX_CORE, 20, 138);
     // Resources.
     ctx.fillStyle = GOLD;
     ctx.font = 'bold 14px monospace';
-    ctx.fillText('PLASMA ' + Math.floor(w.plasma), 20, 148);
+    ctx.fillText('PLASMA ' + Math.floor(w.plasma), 20, 160);
     ctx.fillStyle = '#e0aaff';
-    ctx.fillText('ORE ' + Math.floor(w.ore), 20, 168);
+    ctx.fillText('ORE ' + Math.floor(w.ore), 20, 180);
     ctx.fillStyle = CYAN;
     ctx.font = '12px monospace';
-    ctx.fillText('ENERGY FLOW +' + w.tech.plasmaRate().toFixed(1) + ' MW/s', 20, 188);
+    ctx.fillText('ENERGY FLOW +' + w.tech.plasmaRate().toFixed(1) + ' MW/s', 20, 200);
     ctx.fillStyle = '#9fb3c8';
-    ctx.fillText('STRUCTURES ' + w.structures.length + ' / 8', 20, 208);
+    ctx.fillText('STRUCTURES ' + w.structures.length + ' / 8', 20, 220);
   }
 
   drawRightPanel(ctx, w) {
-    this.panel(ctx, 1058, 52, 210, 296, 'INCOMING');
+    this.panel(ctx, 1058, 64, 210, 296, 'INCOMING');
     ctx.textAlign = 'left';
     ctx.font = '11px monospace';
     const rows = [
@@ -439,7 +482,7 @@ export class TelemetryHUDRenderer {
       ['Comet', w.comets.length, 'shoot to harvest plasma'],
       ['Dreadnought', w.boss ? 1 : 0, 'eats stars, spawns leeches'],
     ];
-    let y = 76;
+    let y = 88;
     for (const [name, n, desc] of rows) {
       ctx.fillStyle = n > 0 ? '#fff' : '#5a6b80';
       ctx.fillText(name + ' x' + n, 1066, y);
@@ -570,21 +613,21 @@ export class TelemetryHUDRenderer {
     const bw = 420;
     const bx = 640 - bw / 2;
     ctx.fillStyle = 'rgba(5, 8, 20, 0.8)';
-    ctx.fillRect(bx - 8, 46, bw + 16, 52);
+    ctx.fillRect(bx - 8, 64, bw + 16, 52);
     ctx.strokeStyle = '#e0aaff';
-    ctx.strokeRect(bx - 8.5, 46.5, bw + 16, 52);
+    ctx.strokeRect(bx - 8.5, 64.5, bw + 16, 52);
     ctx.fillStyle = '#e0aaff';
     ctx.font = 'bold 12px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('☠ THE VOID MAW — ' + info.name + ': ' + info.title + ' ☠', 640, 60);
+    ctx.fillText('☠ THE VOID MAW — ' + info.name + ': ' + info.title + ' ☠', 640, 78);
     ctx.fillStyle = 'rgba(255,255,255,0.15)';
-    ctx.fillRect(bx, 64, bw, 9);
+    ctx.fillRect(bx, 82, bw, 9);
     ctx.fillStyle = '#b5179e';
-    ctx.fillRect(bx, 64, bw * Math.max(0, b.hp / b.maxHp), 9);
+    ctx.fillRect(bx, 82, bw * Math.max(0, b.hp / b.maxHp), 9);
     // The phase's ability, in plain words under the bar.
     ctx.fillStyle = '#d7a0f0';
     ctx.font = '10px monospace';
-    ctx.fillText(info.ability, 640, 88);
+    ctx.fillText(info.ability, 640, 106);
   }
 
   // A short center banner when the boss changes phase.
@@ -600,6 +643,20 @@ export class TelemetryHUDRenderer {
     ctx.fillStyle = '#fff';
     ctx.font = '15px monospace';
     ctx.fillText(ban.sub, 640, 156);
+    ctx.restore();
+  }
+
+  // A big gold CHAIN xN callout under the boss banner while a streak is hot.
+  drawChainCallout(ctx, w) {
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, w.chainTimer);
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 32px monospace';
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+    ctx.lineWidth = 5;
+    ctx.strokeText('CHAIN ×' + w.chain, 640, 210);
+    ctx.fillStyle = GOLD;
+    ctx.fillText('CHAIN ×' + w.chain, 640, 210);
     ctx.restore();
   }
 

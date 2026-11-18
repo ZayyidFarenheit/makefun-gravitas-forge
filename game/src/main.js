@@ -71,7 +71,7 @@ function makeStarfield() {
     seed = (seed * 16807) % 2147483647;
     return seed / 2147483647;
   };
-  for (let i = 0; i < 170; i++) {
+  for (let i = 0; i < 420; i++) {
     stars.push({
       x: rnd() * VIEW_W,
       y: rnd() * VIEW_H,
@@ -480,21 +480,86 @@ function stageShot(name) {
       if (world.phase === 'won' || world.phase === 'lost') break;
     }
     window.__gravitas.autoplay = false;
-    // Cover staging: the freeze frame shows the fight at its peak. The
-    // chain shown is the run's real peak chain (at least x8, capped at the
-    // x12 score-multiplier cap) — the moment the boss crosses 50% is often
-    // a low-chain lull, and the cover should read like the fight feels.
+    // Cover staging: pin the boss center-left, big in frame, and keep the
+    // fight at its 50% peak while a live FLANK! tag lands on it.
     if (world.phase === 'playing' && world.boss) {
+      const BOSS_X = 395;
+      const BOSS_Y = 345;
+      world.boss.x = BOSS_X;
+      world.boss.y = BOSS_Y;
+      // Keep firing at the pinned boss until a gold FLANK! number is live
+      // ON THE BOSS (a cruiser elsewhere can also throw a FLANK! tag, and
+      // that one lands on the phase banner); hold the boss at ~50% HP so
+      // the frame stays in PHASE II, not III.
+      window.__gravitas.autoplay = true;
+      let wait = 0;
+      while (wait < 60 * 15 && !world.damageNumbers.some((d) => d.text === 'FLANK!' && Math.abs(d.x - BOSS_X) < 120 && Math.abs(d.y - BOSS_Y) < 120)) {
+        if (world.fireCooldown > 0) world.fireCooldown -= FIXED_DT;
+        autoplayStep();
+        world.engine.step(FIXED_DT, systems);
+        wait++;
+        world.boss.x = BOSS_X;
+        world.boss.y = BOSS_Y;
+        if (world.boss.hp < world.boss.maxHp * 0.36) world.boss.hp = world.boss.maxHp * 0.5;
+        if (world.phase === 'won' || world.phase === 'lost') break;
+      }
+      window.__gravitas.autoplay = false;
+      // Re-apply the freeze-frame state: the wait steps decayed orbits and
+      // ran the chain timer down, and may have let the phase banner lapse.
       world.chain = Math.max(world.chain, Math.min(Math.max(world.peakChain, 8), 12));
       world.chainTimer = 2.5;
+      world.boss.phase = 2;
       // Cover staging: exactly two structures stay decayed (so the Q boost
       // stays READY and the DECAY! Q label still reads) and the rest are
-      // fresh — the Pass 1 cover showed six DECAY! Q labels at once.
-      world.structures.forEach((s, i) => {
-        s.orbitR = i < 2 ? s.nominalR - 20 : s.nominalR;
+      // fresh — and the two are rotated to fixed clear angles (135°
+      // bottom-left, 30° right), because picking by current position kept
+      // landing a label on the tech strip: the label is drawn radially
+      // outward from the star, ~10px below the structure, not above it.
+      const labelPenalty = (s) => {
+        const dx = s.x - STAR_X;
+        const dy = s.y - STAR_Y;
+        const d = Math.hypot(dx, dy) || 1;
+        const lx = s.x + (dx / d) * 18;
+        const ly = s.y + (dy / d) * 18 - 10;
+        let p = 0;
+        if (ly < 130) p += 100;
+        if (ly < 240 && lx > 380 && lx < 900) p += 100;
+        if (lx < 240) p += 50;
+        if (lx > 1040) p += 50;
+        if (ly > 630) p += 100;
+        if (ly < 250) p += 20;
+        return p;
+      };
+      const decayed = [...world.structures]
+        .sort((a, b) => labelPenalty(a) - labelPenalty(b))
+        .slice(0, 2);
+      const decayAngles = [(135 * Math.PI) / 180, (30 * Math.PI) / 180];
+      world.structures.forEach((s) => {
+        if (decayed.includes(s)) {
+          s.angle = decayAngles[decayed.indexOf(s)];
+          s.orbitR = s.nominalR - 20;
+        } else {
+          s.orbitR = s.nominalR;
+        }
         s.x = STAR_X + Math.cos(s.angle) * s.orbitR;
         s.y = STAR_Y + Math.sin(s.angle) * s.orbitR;
       });
+      // Cover staging: keep only the damage numbers on the boss — a stray
+      // cruiser FLANK! or -23 elsewhere in the frame lands on the banner or
+      // the INCOMING panel, and the freeze is about the boss fight.
+      world.damageNumbers = world.damageNumbers.filter(
+        (d) => Math.abs(d.x - BOSS_X) < 120 && Math.abs(d.y - BOSS_Y) < 120,
+      );
+      world.phaseBanner = {
+        text: 'THE VOID MAW — PHASE II: LEECH SWARM',
+        sub: 'Leeches spawn twice as fast',
+        timer: 2.5,
+      };
+      // Cover staging: zoom the tactical camera about the star so the boss
+      // renders visibly bigger than the Pass 3 cover (the aim arc now draws
+      // in world space, so it stays true under zoom).
+      world.engine.camera.zoom = 1.3;
+      world.engine.camera.targetZoom = 1.3;
     }
     aimAtNearestEnemy();
   } else if (name === 'win') {
