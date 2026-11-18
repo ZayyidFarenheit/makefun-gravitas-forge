@@ -48,6 +48,8 @@ function makeWorld() {
     waveBreakTimer: 0,
     novaCooldown: 0,
     controlsFlash: 0, // seconds left of the grey flash on the controls row
+    flankHits: 0, // shielded enemies killed or hurt from the flank (Pass 2)
+    phaseBanner: null, // { text, sub, timer } while a boss-phase banner shows
     lanceTimer: 12,
     buoys: [
       { x: STAR_X + 330, y: STAR_Y, r: 16, mass: 2600, angle: 0, orbitR: 330, orbitSpeed: 0.12, kind: 'moon', name: 'Vey' },
@@ -89,6 +91,7 @@ world.structureManager = new StructureManager(world);
 world.tech = new TechTreeManager(world);
 world.hud = new TelemetryHUDRenderer(world);
 const audio = new CosmicSynthAudio();
+world.audio = audio; // the physics engine plays the flank-hit chime through it
 
 const systems = {
   physics: world.physics,
@@ -441,6 +444,14 @@ function stageShot(name) {
     if (world.phase === 'playing' && world.boss) {
       world.chain = Math.max(world.chain, Math.min(Math.max(world.peakChain, 8), 12));
       world.chainTimer = 2.5;
+      // Cover staging: exactly two structures stay decayed (so the Q boost
+      // stays READY and the DECAY! Q label still reads) and the rest are
+      // fresh — the Pass 1 cover showed six DECAY! Q labels at once.
+      world.structures.forEach((s, i) => {
+        s.orbitR = i < 2 ? s.nominalR - 20 : s.nominalR;
+        s.x = STAR_X + Math.cos(s.angle) * s.orbitR;
+        s.y = STAR_Y + Math.sin(s.angle) * s.orbitR;
+      });
     }
     aimAtNearestEnemy();
   } else if (name === 'win') {
@@ -503,6 +514,9 @@ window.__gravitas = {
       structures: world.structures.length,
       tech: [...world.tech.owned],
       bossHp: world.boss ? Math.round(world.boss.hp) : null,
+      bossPhase: world.boss ? world.boss.phase : null,
+      flankHits: world.flankHits,
+      flankSounds: audio.flankSounds,
       shots: world.shots,
       hits: world.hits,
       time: Math.round(world.time),
@@ -513,6 +527,7 @@ window.__gravitas = {
   buy(id) { return world.tech.buy(id); },
   boost() { return world.structureManager.boostAll(); },
   nova() { return world.tech.fireNova(); },
+  nextWave() { return world.hud.nextWave(); },
   autoplayStep() { autoplayStep(); },
   stepSim(seconds, useAutoplay) {
     const driver = useAutoplay ? autoplayStep : null;

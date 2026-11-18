@@ -52,6 +52,8 @@ export class SimulationEngine {
     w.waveBreakTimer = 0;
     w.novaCooldown = 0;
     w.controlsFlash = 0;
+    w.flankHits = 0;
+    w.phaseBanner = null;
     w.lanceTimer = 12;
     w.threat = 0;
     w.bossDefeated = false;
@@ -89,6 +91,10 @@ export class SimulationEngine {
     w.time += dt;
     if (w.novaCooldown > 0) w.novaCooldown -= dt;
     if (w.controlsFlash > 0) w.controlsFlash -= dt;
+    if (w.phaseBanner) {
+      w.phaseBanner.timer -= dt;
+      if (w.phaseBanner.timer <= 0) w.phaseBanner = null;
+    }
     if (w.chainTimer > 0) {
       w.chainTimer -= dt;
       if (w.chainTimer <= 0) w.chain = 0;
@@ -149,10 +155,10 @@ export class SimulationEngine {
     }
   }
 
-  addDamageNumber(x, y, text, color) {
+  addDamageNumber(x, y, text, color, size) {
     const w = this.world;
     if (w.damageNumbers.length > 60) w.damageNumbers.shift();
-    w.damageNumbers.push({ x, y, text, color, life: 0.9 });
+    w.damageNumbers.push({ x, y, text, color, size: size || 13, life: 0.9 });
   }
 
   burst(x, y, count, color, speed) {

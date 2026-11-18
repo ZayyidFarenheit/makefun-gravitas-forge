@@ -92,6 +92,7 @@ export class OrbitalPhysicsEngine {
       const rr = e.radius + 4;
       if (dx * dx + dy * dy > rr * rr) continue;
       let dmg = p.dmg;
+      let flank = false;
       // The Singularity Lance pierces shields entirely.
       if (p.from !== 'lance' && (e.kind === 'cruiser' || e.kind === 'dreadnought')) {
         // Facing: the cruiser's nose points at the star. A projectile whose
@@ -105,9 +106,13 @@ export class OrbitalPhysicsEngine {
         // in front but its hide is thinner overall: 50% less from the front.
         const frontMul = e.kind === 'dreadnought' ? 0.5 : 0.25;
         if (facing > 0.25) dmg = Math.max(1, Math.round(dmg * frontMul));
+        // FLANK! marks a full-damage hit that arrived at an angle to the
+        // star-enemy axis — a true flank (cross-field turret shot, or a slug
+        // bent around a moon) — not a straight radial shot.
+        flank = facing <= 0.25 && Math.abs(facing) < 0.7;
       }
       w.hits++;
-      this.damageEnemy(e, dmg, w, j);
+      this.damageEnemy(e, dmg, w, j, flank);
       if (p.pierce) {
         p.pierce--;
         if (p.pierce <= 0) { w.projectiles.splice(i, 1); return; }
@@ -137,9 +142,16 @@ export class OrbitalPhysicsEngine {
     }
   }
 
-  damageEnemy(e, dmg, w, index) {
+  damageEnemy(e, dmg, w, index, flank) {
     e.hp -= dmg;
     w.engine.addDamageNumber(e.x, e.y - e.radius - 6, '-' + dmg, '#ffd166');
+    // A flank hit on a shielded enemy reads: gold FLANK! over the damage
+    // number, a high chime, and a counter the debug handle can verify.
+    if (flank && (e.kind === 'cruiser' || e.kind === 'dreadnought')) {
+      w.flankHits++;
+      w.engine.addDamageNumber(e.x, e.y - e.radius - 26, 'FLANK!', '#ffe08a', 16);
+      if (w.audio) w.audio.flankHit();
+    }
     w.engine.burst(e.x, e.y, 4, '#ffb347', 90);
     if (e.hp <= 0) {
       w.engine.burst(e.x, e.y, e.kind === 'dreadnought' ? 80 : 22, e.color, 190);
@@ -253,6 +265,14 @@ export class OrbitalPhysicsEngine {
       ctx.arc(b.x, b.y, b.r + 26, 0, Math.PI * 2);
       ctx.strokeStyle = 'rgba(125, 249, 255, 0.08)';
       ctx.stroke();
+      // The slingshot zone: a dashed ring marking where the moon's pull is
+      // strong enough to bend a slug onto a flank — readable at a glance.
+      ctx.setLineDash([6, 8]);
+      ctx.strokeStyle = 'rgba(125, 249, 255, 0.16)';
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r + 55, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
     }
     ctx.restore();
   }

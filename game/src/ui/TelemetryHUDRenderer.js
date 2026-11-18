@@ -4,7 +4,7 @@
 // behind the Title Screen, and the Post-Run Analytics on the end screens.
 
 import { STAR_X, STAR_Y, STAR_R, MAX_CORE } from '../core/SimulationEngine.js';
-import { ENEMIES, TOTAL_WAVES } from '../systems/FleetWaveDirector.js';
+import { ENEMIES, TOTAL_WAVES, WAVES, BOSS_PHASES } from '../systems/FleetWaveDirector.js';
 import { STRUCTURE_DEFS } from '../entities/OrbitalStructure.js';
 import { TECHS } from '../systems/TechTreeManager.js';
 
@@ -228,10 +228,16 @@ export class TelemetryHUDRenderer {
         ctx.lineTo(-14, 13);
         ctx.closePath();
         ctx.fill();
-        ctx.strokeStyle = 'rgba(76, 201, 240, 0.9)';
-        ctx.lineWidth = 3;
+        // Front-armor arc, bright and thick: this is the side NOT to shoot.
+        ctx.strokeStyle = 'rgba(76, 201, 240, 1)';
+        ctx.lineWidth = 4;
         ctx.beginPath();
         ctx.arc(0, 0, 24, -0.9, 0.9);
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(76, 201, 240, 0.35)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, 29, -0.9, 0.9);
         ctx.stroke();
       } else if (e.kind === 'leech') {
         ctx.rotate(e.angle);
@@ -272,6 +278,18 @@ export class TelemetryHUDRenderer {
         ctx.beginPath();
         ctx.arc(0, 0, 26, 0, Math.PI * 2);
         ctx.fill();
+        // Front-armor arc over the maw: the nose faces the star, and the
+        // violet arc marks the half of the hull NOT to shoot head-on.
+        ctx.strokeStyle = 'rgba(224, 170, 255, 0.95)';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(0, 0, 73, -0.7, 0.7);
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(224, 170, 255, 0.35)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, 79, -0.7, 0.7);
+        ctx.stroke();
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 11px monospace';
         ctx.textAlign = 'center';
@@ -318,9 +336,10 @@ export class TelemetryHUDRenderer {
   }
 
   drawDamageNumbers(ctx, w) {
-    ctx.font = 'bold 13px monospace';
     ctx.textAlign = 'center';
     for (const d of w.damageNumbers) {
+      // FLANK! tags ride bigger (size 16); plain damage stays 13.
+      ctx.font = 'bold ' + (d.size || 13) + 'px monospace';
       ctx.globalAlpha = Math.min(1, d.life / 0.5);
       ctx.fillStyle = d.color;
       ctx.fillText(d.text, d.x, d.y);
@@ -338,6 +357,7 @@ export class TelemetryHUDRenderer {
     this.drawTechStrip(ctx, w);
     this.drawControls(ctx, w);
     if (w.boss) this.drawBossBar(ctx, w);
+    if (w.phaseBanner) this.drawPhaseBanner(ctx, w);
     if (w.phase === 'playing') this.drawAimArc(ctx, w);
   }
 
@@ -409,7 +429,7 @@ export class TelemetryHUDRenderer {
   }
 
   drawRightPanel(ctx, w) {
-    this.panel(ctx, 1058, 52, 210, 268, 'INCOMING');
+    this.panel(ctx, 1058, 52, 210, 296, 'INCOMING');
     ctx.textAlign = 'left';
     ctx.font = '11px monospace';
     const rows = [
@@ -449,6 +469,37 @@ export class TelemetryHUDRenderer {
       const ry = cy + ((e.y - STAR_Y) / 700) * 30;
       ctx.fillRect(rx - 2, ry - 2, 4, 4);
     }
+    // NEXT WAVE: the composition of the wave after this one, so the player
+    // can build for it during the break instead of reacting to it.
+    const nw = this.nextWave();
+    ctx.fillStyle = CYAN;
+    ctx.font = 'bold 11px monospace';
+    ctx.fillText(nw.wave ? 'NEXT WAVE ' + nw.wave : 'NEXT WAVE', 1066, cy + 44);
+    ctx.fillStyle = '#d7dee8';
+    ctx.font = '10px monospace';
+    let ny = cy + 58;
+    for (const line of nw.lines) {
+      ctx.fillText(line, 1066, ny);
+      ny += 13;
+    }
+  }
+
+  // The next wave's composition, split into lines that fit the panel.
+  nextWave() {
+    const w = this.world;
+    const n = w.wave + 1;
+    if (n > TOTAL_WAVES) return { wave: 0, lines: ['Final wave — hold the line'] };
+    const short = { asteroid: 'Asteroid', cruiser: 'Cruiser', leech: 'Leech', comet: 'Comet' };
+    const parts = (WAVES[n] || []).map(([kind, count]) => (short[kind] || kind) + ' x' + count);
+    const lines = [];
+    let cur = '';
+    for (const p of parts) {
+      const add = cur ? ' · ' + p : p;
+      if ((cur + add).length > 30 && cur) { lines.push(cur); cur = p; }
+      else cur += add;
+    }
+    if (cur) lines.push(cur);
+    return { wave: n, lines };
   }
 
   countKind(kind) {
@@ -515,26 +566,53 @@ export class TelemetryHUDRenderer {
   drawBossBar(ctx, w) {
     const b = w.boss;
     if (!b) return;
+    const info = BOSS_PHASES[b.phase || 1];
     const bw = 420;
     const bx = 640 - bw / 2;
     ctx.fillStyle = 'rgba(5, 8, 20, 0.8)';
-    ctx.fillRect(bx - 8, 46, bw + 16, 34);
+    ctx.fillRect(bx - 8, 46, bw + 16, 52);
     ctx.strokeStyle = '#e0aaff';
-    ctx.strokeRect(bx - 8.5, 46.5, bw + 16, 34);
+    ctx.strokeRect(bx - 8.5, 46.5, bw + 16, 52);
     ctx.fillStyle = '#e0aaff';
     ctx.font = 'bold 12px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('☠ THE VOID MAW ☠', 640, 60);
+    ctx.fillText('☠ THE VOID MAW — ' + info.name + ': ' + info.title + ' ☠', 640, 60);
     ctx.fillStyle = 'rgba(255,255,255,0.15)';
     ctx.fillRect(bx, 64, bw, 9);
     ctx.fillStyle = '#b5179e';
     ctx.fillRect(bx, 64, bw * Math.max(0, b.hp / b.maxHp), 9);
+    // The phase's ability, in plain words under the bar.
+    ctx.fillStyle = '#d7a0f0';
+    ctx.font = '10px monospace';
+    ctx.fillText(info.ability, 640, 88);
+  }
+
+  // A short center banner when the boss changes phase.
+  drawPhaseBanner(ctx, w) {
+    const ban = w.phaseBanner;
+    if (!ban) return;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, ban.timer);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = GOLD;
+    ctx.font = 'bold 30px monospace';
+    ctx.fillText(ban.text, 640, 130);
+    ctx.fillStyle = '#fff';
+    ctx.font = '15px monospace';
+    ctx.fillText(ban.sub, 640, 156);
+    ctx.restore();
   }
 
   drawAimArc(ctx, w) {
     const aim = w.aim;
     if (!aim || !aim.active) return;
-    const pts = w.physics.predictTrajectory(STAR_X, STAR_Y, aim.vx, aim.vy, 90, 1 / 60);
+    // Predict from where a slug actually spawns (the star's edge, STAR_R+8
+    // out along the aim) — starting at the star's center puts the first
+    // point inside the star and the arc never draws at all.
+    const a = Math.atan2(aim.vy, aim.vx);
+    const sx = STAR_X + Math.cos(a) * (STAR_R + 8);
+    const sy = STAR_Y + Math.sin(a) * (STAR_R + 8);
+    const pts = w.physics.predictTrajectory(sx, sy, aim.vx, aim.vy, 90, 1 / 60);
     if (pts.length < 3) return;
     // A faint spine under the dots so the curve reads at thumbnail size.
     ctx.strokeStyle = 'rgba(125, 249, 255, 0.30)';

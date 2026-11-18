@@ -28,6 +28,16 @@ export const WAVES = {
 
 export const TOTAL_WAVES = 7;
 
+// Boss phases for THE VOID MAW: I holds, II swarms leeches faster, III is
+// enraged (faster, stronger pull). Only leech rate and boss speed/thrust
+// change — no damage, HP, or wave-shape changes, so the win/lose balance
+// the autoplay verified still holds.
+export const BOSS_PHASES = {
+  1: { name: 'PHASE I', title: 'THE MAW AWAKENS', ability: 'Spawns leeches' },
+  2: { name: 'PHASE II', title: 'LEECH SWARM', ability: 'Leeches spawn twice as fast' },
+  3: { name: 'PHASE III', title: 'VOID RAGE', ability: 'Faster — stronger pull. End it now.' },
+};
+
 export class FleetWaveDirector {
   constructor(world) {
     this.world = world;
@@ -55,6 +65,8 @@ export class FleetWaveDirector {
     const boss = this.makeEnemy('dreadnought', def, -80, STAR_Y - 180);
     boss.vx = 24;
     boss.vy = 10;
+    boss.phase = 1;
+    boss.leechRate = 0.12;
     w.enemies.push(boss);
     w.boss = boss;
     w.engine.addShake(10);
@@ -126,11 +138,31 @@ export class FleetWaveDirector {
         this.spawnTimer = next.gap;
       }
     }
-    // The dreadnought spawns leeches while it lives.
-    if (w.boss && w.boss.hp > 0 && Math.random() < dt * 0.12) {
+    // The dreadnought spawns leeches while it lives; the rate is its phase's.
+    if (w.boss && w.boss.hp > 0 && Math.random() < dt * (w.boss.leechRate || 0.12)) {
       const def = ENEMIES.leech;
       const a = Math.random() * Math.PI * 2;
       w.enemies.push(this.makeEnemy('leech', def, w.boss.x + Math.cos(a) * 80, w.boss.y + Math.sin(a) * 80));
+    }
+    // Boss phases: I >66% HP, II 33–66% (leeches faster), III <33% (enraged:
+    // faster, stronger pull). A phase change raises a short banner; the
+    // per-phase rates are re-applied every step so they stay in force.
+    if (w.boss && w.boss.hp > 0) {
+      const frac = w.boss.hp / w.boss.maxHp;
+      const phase = frac > 0.66 ? 1 : frac > 0.33 ? 2 : 3;
+      if (phase !== w.boss.phase) {
+        w.boss.phase = phase;
+        const info = BOSS_PHASES[phase];
+        w.phaseBanner = {
+          text: 'THE VOID MAW — ' + info.name + ': ' + info.title,
+          sub: info.ability,
+          timer: 2.5,
+        };
+      }
+      w.boss.leechRate = phase === 1 ? 0.12 : phase === 2 ? 0.24 : 0.30;
+      const spd = phase === 3 ? 1.3 : 1;
+      w.boss.speed = ENEMIES.dreadnought.speed * spd;
+      w.boss.thrust = ENEMIES.dreadnought.speed * 0.55 * spd;
     }
     // Leeches near the star slow the structures they cling to.
     for (const s of w.structures) s.slowed = false;

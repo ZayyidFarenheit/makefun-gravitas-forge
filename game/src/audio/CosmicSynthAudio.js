@@ -8,6 +8,7 @@ export class CosmicSynthAudio {
     this.ctx = null;
     this.muted = false;
     this.padNodes = null;
+    this.flankSounds = 0; // chimes played (see flankHit)
   }
 
   // Create the context lazily (browsers require a gesture first).
@@ -105,6 +106,29 @@ export class CosmicSynthAudio {
       g.connect(ctx.destination);
       o.start(ctx.currentTime + delay);
       o.stop(ctx.currentTime + delay + 0.2);
+    }
+  }
+
+  // Flank-hit chime: a bright high ping a ninth above the UI blip, so a
+  // gravity-bent flank kill sounds different from an ordinary hit.
+  // flankSounds counts every chime (even with no audio context yet) so the
+  // debug handle can verify flank hits in headless runs.
+  flankHit() {
+    if (this.muted) return;
+    this.flankSounds++;
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    for (const [f, delay] of [[1320, 0], [1980, 0.06]]) {
+      const o = ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = f;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.14, ctx.currentTime + delay);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + 0.22);
+      o.connect(g);
+      g.connect(ctx.destination);
+      o.start(ctx.currentTime + delay);
+      o.stop(ctx.currentTime + delay + 0.24);
     }
   }
 
