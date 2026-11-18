@@ -10,7 +10,7 @@ export const TECHS = [
   { id: 'rapid', name: 'Rapid Cycling', cost: { plasma: 60, ore: 20 }, desc: '+25% structure fire rate' },
   { id: 'siphon', name: 'Plasma Siphon', cost: { plasma: 50, ore: 30 }, desc: '+50% plasma income' },
   { id: 'reinforced', name: 'Reinforced Core', cost: { plasma: 40, ore: 40 }, desc: '+40 max Core, heal 40' },
-  { id: 'lens', name: 'Gravity Lens', cost: { plasma: 80, ore: 40 }, desc: 'shots bend 2x, full flank dmg' },
+  { id: 'lens', name: 'Gravity Lens', cost: { plasma: 80, ore: 40 }, desc: 'slugs bend harder, full flank dmg' },
   { id: 'burst', name: 'Flak Burst', cost: { plasma: 70, ore: 30 }, desc: 'flak fires 5 pellets' },
   { id: 'lance', name: 'Singularity Lance', cost: { plasma: 100, ore: 60 }, desc: 'auto piercing lance, 120 dmg' },
   { id: 'nova', name: 'Nova Burst', cost: { plasma: 100, ore: 60 }, desc: 'X: 60 dmg blast, 20s cooldown' },

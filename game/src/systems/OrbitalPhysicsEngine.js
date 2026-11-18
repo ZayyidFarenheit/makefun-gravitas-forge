@@ -5,10 +5,23 @@
 
 import { STAR_X, STAR_Y, STAR_R } from '../core/SimulationEngine.js';
 
-// Gravity constants, tuned so a slug bends visibly around a moon but still
-// flies straight enough to feel fair.
-export const G_STAR = 26000;
-export const G_MOON = 9000;
+// Gravity constants. G_STAR is large on purpose: a slug fired at 520 px/s
+// tangentially past the star at ~200px must bend >=60px over 1s of flight,
+// so a player can genuinely curve a shot around the star and into an
+// enemy's flank (measured offline: ~64px at G_STAR 12,000,000 with the
+// softening below). The star term is softened by STAR_SOFTENING on
+// purpose: with the old +900 the escape velocity from the star's edge
+// (60px) was ~518 px/s — barely below the 520 px/s muzzle velocity — so
+// ANY Gravity Lens multiplier made player slugs fall back into the star
+// and capped their range at ~390px. With +10000 the escape velocity is
+// ~454 px/s (497 with the lens), so lens slugs still escape and reach
+// ~700px, while the bend at 200px stays >=60px. G_MOON is scaled up the
+// same way so a close pass by a moon bends a slug visibly.
+export const G_STAR = 12000000;
+export const G_MOON = 600000;
+export const STAR_SOFTENING = 10000;
+// The Gravity Lens tech multiplies the bend slugs feel (1.0 without it).
+export const LENS_BEND = 1.2;
 
 export class OrbitalPhysicsEngine {
   constructor(world) {
@@ -21,7 +34,7 @@ export class OrbitalPhysicsEngine {
     let ay = 0;
     const dxs = STAR_X - x;
     const dys = STAR_Y - y;
-    const ds2 = dxs * dxs + dys * dys + 900;
+    const ds2 = dxs * dxs + dys * dys + STAR_SOFTENING;
     const ds = Math.sqrt(ds2);
     const gs = G_STAR / ds2;
     ax += (dxs / ds) * gs;
@@ -58,7 +71,12 @@ export class OrbitalPhysicsEngine {
       p.life -= dt;
       if (p.life <= 0) { w.projectiles.splice(i, 1); continue; }
       // Gravity bends the slug; stronger when the Gravity Lens tech is owned.
-      const bend = w.tech.owned.has('lens') ? 1.9 : 1;
+      // Remember the position before this step's move: it is the slug's
+      // entry side when it strikes an enemy this step (see
+      // resolveProjectileHits — front vs flank is geometric, not velocity).
+      p.px = p.x;
+      p.py = p.y;
+      const bend = w.tech.owned.has('lens') ? LENS_BEND : 1;
       const g = this.gravityAt(p.x, p.y);
       p.vx += g.ax * bend * dt;
       p.vy += g.ay * bend * dt;
@@ -82,9 +100,16 @@ export class OrbitalPhysicsEngine {
   }
 
   resolveProjectileHits(p, i, w) {
-    // Enemy hits: shield-cruisers take 75% less from the front (shots fired
-    // straight out of the star) and full damage from the flank or rear, which
-    // is what the gravity bend is for.
+    // Enemy hits: shield-cruisers take 75% less from the front and full
+    // damage from the flank or rear — and "front" is GEOMETRIC: it is the
+    // slug's entry side at impact, not its velocity direction. The entry
+    // point is the slug's position at the start of this step (p.px/p.py,
+    // stored before the move): if that point lies within ~45 degrees of
+    // the star-enemy axis, the slug came more-or-less straight from the
+    // star side and hits the armored front; otherwise it curved in from
+    // the side or rear and hits the flank at full damage. That is the
+    // documented hook, true in the code: bent shots flank, straight
+    // shots are blunted.
     for (let j = w.enemies.length - 1; j >= 0; j--) {
       const e = w.enemies[j];
       const dx = p.x - e.x;
@@ -95,21 +120,25 @@ export class OrbitalPhysicsEngine {
       let flank = false;
       // The Singularity Lance pierces shields entirely.
       if (p.from !== 'lance' && (e.kind === 'cruiser' || e.kind === 'dreadnought')) {
-        // Facing: the cruiser's nose points at the star. A projectile whose
-        // velocity points away from the star hits the armored flank/rear.
+        // Axis from the enemy to the star (the armored front faces the star).
         const toStarX = STAR_X - e.x;
         const toStarY = STAR_Y - e.y;
         const toStarLen = Math.hypot(toStarX, toStarY) || 1;
-        const velLen = Math.hypot(p.vx, p.vy) || 1;
-        const facing = (p.vx * toStarX + p.vy * toStarY) / (velLen * toStarLen);
+        // Direction from the enemy to the slug's entry point this step.
+        const inX = (p.px !== undefined ? p.px : p.x) - e.x;
+        const inY = (p.py !== undefined ? p.py : p.y) - e.y;
+        const inLen = Math.hypot(inX, inY) || 1;
+        // cos of the angle between the entry side and the star direction.
+        // Above cos(45 deg) the slug entered from the star side: front.
+        const facing = (inX * toStarX + inY * toStarY) / (inLen * toStarLen);
         // Cruisers: 75% less from the front. The dreadnought's maw is thicker
         // in front but its hide is thinner overall: 50% less from the front.
         const frontMul = e.kind === 'dreadnought' ? 0.5 : 0.25;
-        if (facing > 0.25) dmg = Math.max(1, Math.round(dmg * frontMul));
-        // FLANK! marks a full-damage hit that arrived at an angle to the
-        // star-enemy axis — a true flank (cross-field turret shot, or a slug
-        // bent around a moon) — not a straight radial shot.
-        flank = facing <= 0.25 && Math.abs(facing) < 0.7;
+        if (facing > 0.7071) dmg = Math.max(1, Math.round(dmg * frontMul));
+        // FLANK! marks a full-damage hit that arrived off the star-enemy
+        // axis — a slug bent around the star or a moon, a cross-field
+        // turret shot, or a rear hit — not a straight radial shot.
+        flank = facing <= 0.7071;
       }
       w.hits++;
       this.damageEnemy(e, dmg, w, j, flank);
@@ -229,7 +258,7 @@ export class OrbitalPhysicsEngine {
     let py = y;
     let pvx = vx;
     let pvy = vy;
-    const bend = this.world.tech.owned.has('lens') ? 1.9 : 1;
+    const bend = this.world.tech.owned.has('lens') ? LENS_BEND : 1;
     for (let s = 0; s < steps; s++) {
       const g = this.gravityAt(px, py);
       pvx += g.ax * bend * stepDt;

@@ -3,7 +3,7 @@
 // runs the render loop, stages screenshots (?shot=), and exposes the debug
 // handle window.__gravitas (state, autoplay driver, build/buy hooks).
 
-import { SimulationEngine, VIEW_W, VIEW_H, STAR_X, STAR_Y, STAR_R, FIXED_DT } from './core/SimulationEngine.js';
+import { SimulationEngine, VIEW_W, VIEW_H, STAR_X, STAR_Y, STAR_R, FIXED_DT, SLUG_LEAD_SPEED } from './core/SimulationEngine.js';
 import { OrbitalPhysicsEngine } from './systems/OrbitalPhysicsEngine.js';
 import { FleetWaveDirector, TOTAL_WAVES } from './systems/FleetWaveDirector.js';
 import { StructureManager, STRUCTURE_DEFS, MAX_STRUCTURES, OrbitalStructure } from './entities/OrbitalStructure.js';
@@ -224,7 +224,11 @@ function firePlayerSlug() {
     y: STAR_Y + Math.sin(a) * (STAR_R + 8),
     vx: Math.cos(a) * 520,
     vy: Math.sin(a) * 520,
-    dmg: 12,
+    // Base slug damage 24 (was 12): with the geometric flank hook, a
+    // straight shot at a cruiser's front deals only 6 now (24 x 0.25),
+    // so the base damage has to carry the front hits; flank hits deal
+    // the full 24. Pass 3 rebalance, step 5.
+    dmg: 24,
     life: 2.5,
     pierce: 0,
     trail: [],
@@ -269,7 +273,9 @@ function autoplayStep() {
     }
   }
   if (target) {
-    const lead = Math.hypot(target.x - STAR_X, target.y - STAR_Y) / 520;
+    // Lead by the slug's average flight speed (SLUG_LEAD_SPEED), not its
+    // muzzle velocity: star gravity slows every slug down along the way.
+    const lead = Math.hypot(target.x - STAR_X, target.y - STAR_Y) / SLUG_LEAD_SPEED;
     world.mouseX = target.x + (target.vx || 0) * lead;
     world.mouseY = target.y + (target.vy || 0) * lead;
     updateAim();
@@ -376,7 +382,7 @@ function autoplayStepTitle(dt) {
     if (d < bestD) { bestD = d; target = e; }
   }
   if (target && world.fireCooldown <= 0) {
-    const lead = bestD / 520;
+    const lead = bestD / SLUG_LEAD_SPEED;
     world.mouseX = target.x + target.vx * lead;
     world.mouseY = target.y + target.vy * lead;
     updateAim();

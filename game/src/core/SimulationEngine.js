@@ -10,6 +10,13 @@ export const STAR_Y = 360;
 export const STAR_R = 52;
 export const FIXED_DT = 1 / 60;
 export const MAX_CORE = 100;
+// Slug lead speed: the muzzle velocity is 520 px/s, but the star's strong
+// gravity decelerates a slug along its whole flight, so the AVERAGE speed
+// over a typical 300-500px shot is only ~350 px/s. Aim lead (autoplay and
+// turrets) divides by this, not by the muzzle velocity, or shots fall
+// behind moving targets. Measured: a radial slug covers ~300px in its
+// first second under G_STAR.
+export const SLUG_LEAD_SPEED = 350;
 
 export class SimulationEngine {
   constructor(world) {

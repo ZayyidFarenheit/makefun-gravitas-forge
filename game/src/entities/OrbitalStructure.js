@@ -4,11 +4,15 @@
 // rides an orbit ring around the Forge-Star, fires or harvests on its own,
 // and slowly decays inward unless the player boosts it back out.
 
-import { STAR_X, STAR_Y } from '../core/SimulationEngine.js';
+import { STAR_X, STAR_Y, SLUG_LEAD_SPEED } from '../core/SimulationEngine.js';
 
 export const STRUCTURE_DEFS = {
-  turret: { name: 'Railgun Turret', key: '1', cost: { plasma: 40, ore: 0 }, orbitR: 150, dmg: 9, rate: 1.2, range: 330, color: '#ffd166', desc: 'shoots nearest foe' },
-  flak: { name: 'Plasma Flak', key: '2', cost: { plasma: 60, ore: 10 }, orbitR: 210, dmg: 5, rate: 0.8, range: 260, color: '#ff7b00', desc: '3-pellet burst, AoE' },
+  // Turret 18, flak 9 (were 9 and 5): with the geometric flank hook, a
+  // turret slug fired from the star side at a cruiser's front deals only
+  // a quarter damage (5 / 2), so the base damage has to carry the front
+  // hits; flank hits deal the full amount. Pass 3 rebalance, step 5.
+  turret: { name: 'Railgun Turret', key: '1', cost: { plasma: 40, ore: 0 }, orbitR: 150, dmg: 18, rate: 1.4, range: 330, color: '#ffd166', desc: 'shoots nearest foe' },
+  flak: { name: 'Plasma Flak', key: '2', cost: { plasma: 60, ore: 10 }, orbitR: 210, dmg: 9, rate: 1.0, range: 260, color: '#ff7b00', desc: '3-pellet burst, AoE' },
   repulsor: { name: 'Gravity Repulsor', key: '3', cost: { plasma: 50, ore: 20 }, orbitR: 180, dmg: 0, rate: 0, range: 170, color: '#7df9ff', desc: 'pushes foes away' },
   dyson: { name: 'Dyson Collector', key: '4', cost: { plasma: 30, ore: 0 }, orbitR: 260, dmg: 0, rate: 0, range: 0, color: '#f72585', desc: '+4 MW/s plasma' },
 };
@@ -85,7 +89,9 @@ export class OrbitalStructure {
     this.cooldown = 1 / (def.rate * rateMul);
     const pellets = this.kind === 'flak' && w.tech.owned.has('burst') ? 5 : this.kind === 'flak' ? 3 : 1;
     for (let i = 0; i < pellets; i++) {
-      const lead = bestD / 520;
+      // Lead by the slug's average flight speed (SLUG_LEAD_SPEED): star
+      // gravity slows every slug down along the way.
+      const lead = bestD / SLUG_LEAD_SPEED;
       const tx = best.x + best.vx * lead;
       const ty = best.y + best.vy * lead;
       const a = Math.atan2(ty - this.y, tx - this.x) + (pellets > 1 ? (i - (pellets - 1) / 2) * 0.14 : 0);

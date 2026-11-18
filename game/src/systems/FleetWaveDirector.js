@@ -9,7 +9,11 @@ import { STAR_X, STAR_Y } from '../core/SimulationEngine.js';
 // 'boss' is the dreadnought. shielded kinds take 75% less from the front.
 export const ENEMIES = {
   asteroid: { name: 'Asteroid', hp: 32, speed: 85, radius: 13, dmg: 10, score: 10, ore: 2, color: '#b08968', behavior: 'star', desc: 'dives at the Forge' },
-  cruiser: { name: 'Shield-Cruiser', hp: 95, speed: 48, radius: 18, dmg: 12, score: 25, ore: 5, color: '#4cc9f0', behavior: 'star', desc: 'armored front — flank it' },
+  // Cruiser 60 HP (was 95): with the geometric flank hook, straight
+  // shots at the armored front deal a quarter damage, so the cruiser's
+  // hide is thinned to keep the waves clearable. Pass 3 rebalance,
+  // step 5.
+  cruiser: { name: 'Shield-Cruiser', hp: 60, speed: 48, radius: 18, dmg: 12, score: 25, ore: 5, color: '#4cc9f0', behavior: 'star', desc: 'armored front — flank it' },
   leech: { name: 'Gravity Leech', hp: 55, speed: 60, radius: 12, dmg: 8, score: 20, ore: 4, color: '#f72585', behavior: 'leech', desc: 'drains energy flow' },
   comet: { name: 'Comet', hp: 12, speed: 85, radius: 11, dmg: 0, score: 5, ore: 0, color: '#7df9ff', behavior: 'harvest', desc: 'shoot to harvest plasma' },
   dreadnought: { name: 'THE VOID MAW', hp: 1700, speed: 40, radius: 64, dmg: 30, score: 500, ore: 60, color: '#2b0a3d', behavior: 'boss', desc: 'eats stars, spawns leeches' },
