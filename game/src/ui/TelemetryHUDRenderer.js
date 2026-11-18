@@ -661,7 +661,9 @@ export class TelemetryHUDRenderer {
 
   drawEnd(ctx, w) {
     const won = w.phase === 'won';
-    ctx.fillStyle = won ? 'rgba(3, 20, 8, 0.72)' : 'rgba(25, 3, 8, 0.78)';
+    // End-screen scrim, kept light enough that the Forge-Star, its ring of
+    // structures and the moons still glow through behind the results.
+    ctx.fillStyle = won ? 'rgba(3, 20, 8, 0.60)' : 'rgba(25, 3, 8, 0.64)';
     ctx.fillRect(0, 0, 1280, 720);
     ctx.textAlign = 'center';
     ctx.fillStyle = won ? GREEN : RED;

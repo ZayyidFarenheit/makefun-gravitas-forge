@@ -324,10 +324,13 @@ function setupTitleDemo() {
   world.plasma = 200;
   world.ore = 100;
   world.tech.reset();
-  // Three pre-built structures so the demo battle looks alive.
+  // Five pre-built structures so the demo battle looks alive — two turrets
+  // and a repulsor join the flak and Dyson ring (title staging + live title).
+  world.structures.push(new OrbitalStructure('turret', world));
   world.structures.push(new OrbitalStructure('turret', world));
   world.structures.push(new OrbitalStructure('flak', world));
   world.structures.push(new OrbitalStructure('dyson', world));
+  world.structures.push(new OrbitalStructure('repulsor', world));
 }
 
 setupTitleDemo();
@@ -412,23 +415,57 @@ function stepSim(seconds, driver) {
 function stageShot(name) {
   if (name === 'title') {
     setupTitleDemo();
-    stepSim(14, null);
+    // Title staging: a longer demo (24s) with the AI aiming and firing like
+    // the live title screen, so the battle behind the title reads dense —
+    // tracers, damage numbers, comets — instead of mostly empty black.
+    stepSim(24, () => autoplayStepTitle(FIXED_DT));
+    // Title staging: fresh orbits, so no DECAY! Q labels clutter the title
+    // frame (the demo runs long enough for the ring to decay past 12px).
+    world.structures.forEach((s) => {
+      s.orbitR = s.nominalR;
+      s.x = STAR_X + Math.cos(s.angle) * s.orbitR;
+      s.y = STAR_Y + Math.sin(s.angle) * s.orbitR;
+    });
     world.aim.active = false;
   } else if (name === 'play') {
     world.engine.startRun();
     window.__gravitas.autoplay = true;
-    // Fast-forward until wave 4 is in full swing, then freeze mid-fight.
+    // Fast-forward until wave 4 is in full swing with a dense field, then
+    // freeze mid-fight.
     let steps = 0;
     while (steps < 60 * 300) {
       if (world.fireCooldown > 0) world.fireCooldown -= FIXED_DT;
       autoplayStep();
       world.engine.step(FIXED_DT, systems);
       steps++;
-      if (world.wave >= 4 && world.enemies.length >= 8) break;
+      if (world.wave >= 5 && world.enemies.length >= 8) break;
+      if (world.phase === 'won' || world.phase === 'lost') break;
+    }
+    // Action staging: keep stepping until a gold FLANK! number is on screen
+    // (flank hits land often, but the numbers only live 0.9s), so the frame
+    // shows the hook, not just a quiet moment between hits.
+    let extra = 0;
+    while (extra < 60 * 10 && !world.damageNumbers.some((d) => d.text === 'FLANK!')) {
+      if (world.fireCooldown > 0) world.fireCooldown -= FIXED_DT;
+      autoplayStep();
+      world.engine.step(FIXED_DT, systems);
+      extra++;
       if (world.phase === 'won' || world.phase === 'lost') break;
     }
     window.__gravitas.autoplay = false;
-    aimAtNearestEnemy();
+    if (world.phase === 'playing') {
+      // Action staging: show the run's real peak chain (at least x8, capped
+      // at the x12 score-multiplier cap), and exactly two structures stay
+      // decayed so the Q boost stays READY without six DECAY! Q labels.
+      world.chain = Math.max(world.chain, Math.min(Math.max(world.peakChain, 8), 12));
+      world.chainTimer = 2.5;
+      world.structures.forEach((s, i) => {
+        s.orbitR = i < 2 ? s.nominalR - 20 : s.nominalR;
+        s.x = STAR_X + Math.cos(s.angle) * s.orbitR;
+        s.y = STAR_Y + Math.sin(s.angle) * s.orbitR;
+      });
+    }
+    aimAtFlankTarget();
   } else if (name === 'boss') {
     world.engine.startRun();
     window.__gravitas.autoplay = true;
@@ -485,6 +522,31 @@ function aimAtNearestEnemy() {
   let target = world.boss;
   if (!target) {
     let bestD = Infinity;
+    for (const e of world.enemies) {
+      const d = Math.hypot(e.x - STAR_X, e.y - STAR_Y);
+      if (d < bestD) { bestD = d; target = e; }
+    }
+  }
+  if (target) {
+    world.mouseX = target.x;
+    world.mouseY = target.y;
+    updateAim();
+    world.aim.active = true;
+  }
+}
+
+// Point the aim at the nearest cruiser — the flank target, whose front-armor
+// arc reads in frame — falling back to the boss, then the nearest enemy.
+function aimAtFlankTarget() {
+  let target = null;
+  let bestD = Infinity;
+  for (const e of world.enemies) {
+    if (e.kind !== 'cruiser') continue;
+    const d = Math.hypot(e.x - STAR_X, e.y - STAR_Y);
+    if (d < bestD) { bestD = d; target = e; }
+  }
+  if (!target) target = world.boss;
+  if (!target) {
     for (const e of world.enemies) {
       const d = Math.hypot(e.x - STAR_X, e.y - STAR_Y);
       if (d < bestD) { bestD = d; target = e; }
