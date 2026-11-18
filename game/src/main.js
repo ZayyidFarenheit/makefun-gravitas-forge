@@ -5,9 +5,11 @@
 
 import { SimulationEngine, VIEW_W, VIEW_H, STAR_X, STAR_Y, STAR_R, FIXED_DT, SLUG_LEAD_SPEED } from './core/SimulationEngine.js';
 import { OrbitalPhysicsEngine } from './systems/OrbitalPhysicsEngine.js';
-import { FleetWaveDirector, TOTAL_WAVES } from './systems/FleetWaveDirector.js';
+import { FleetWaveDirector, TOTAL_WAVES, ENEMIES } from './systems/FleetWaveDirector.js';
 import { StructureManager, STRUCTURE_DEFS, MAX_STRUCTURES, OrbitalStructure } from './entities/OrbitalStructure.js';
 import { TechTreeManager, TECHS } from './systems/TechTreeManager.js';
+import { RelicVault, RELICS } from './systems/RelicVault.js';
+import { Workshop, WORKSHOP_UPGRADES } from './systems/Workshop.js';
 import { TelemetryHUDRenderer } from './ui/TelemetryHUDRenderer.js';
 import { CosmicSynthAudio } from './audio/CosmicSynthAudio.js';
 
@@ -27,9 +29,13 @@ function makeWorld() {
     plasma: 80,
     ore: 20,
     core: 100,
+    maxCore: 100, // the core ceiling; workshop Reinforced Hull raises it
+    salvageEarned: 0, // Salvage banked at run end: 1 per kill, win or lose
+    salvageBanked: false,
     kills: 0,
     shots: 0,
     hits: 0,
+    playerHits: 0, // player-slug hits only (the honest ACCURACY numerator)
     plasmaEarned: 0,
     oreEarned: 0,
     structuresBuilt: 0,
@@ -89,6 +95,8 @@ world.physics = new OrbitalPhysicsEngine(world);
 world.director = new FleetWaveDirector(world);
 world.structureManager = new StructureManager(world);
 world.tech = new TechTreeManager(world);
+world.relics = new RelicVault(world);
+world.workshop = new Workshop();
 world.hud = new TelemetryHUDRenderer(world);
 const audio = new CosmicSynthAudio();
 world.audio = audio; // the physics engine plays the flank-hit chime through it
@@ -135,7 +143,16 @@ canvas.addEventListener('mousedown', (e) => {
   world.mouseY = p.y;
   world.mouseDown = true;
   updateAim();
-  if (world.phase === 'title') { world.engine.startRun(); return; }
+  if (world.phase === 'title') {
+    // A click on a workshop cell buys that upgrade; anywhere else starts.
+    const hit = world.hud.workshopHit(p.x, p.y);
+    if (hit) {
+      if (world.workshop.buy(hit)) audio.blip(990);
+      else audio.blip(220);
+      return;
+    }
+    world.engine.startRun(); return;
+  }
   if (world.phase === 'won' || world.phase === 'lost') { world.engine.startRun(); return; }
   if (world.phase !== 'playing' || world.paused) return;
   // Clicking a tech name in the strip buys it.
@@ -210,7 +227,8 @@ function buildStructure(kind, silent) {
     // The build failed (too poor, or no slot left): say so, at the star.
     failFeedback();
     const def = STRUCTURE_DEFS[kind];
-    const reason = world.structures.length >= MAX_STRUCTURES ? 'SLOTS FULL' : 'NEED ' + def.cost.plasma + 'P';
+    const maxSlots = MAX_STRUCTURES + world.workshop.slotsBonus();
+    const reason = world.structures.length >= maxSlots ? 'SLOTS FULL' : 'NEED ' + def.cost.plasma + 'P';
     world.engine.addDamageNumber(STAR_X, STAR_Y - STAR_R - 22, reason, '#9fb3c8');
   }
 }
@@ -228,7 +246,9 @@ function firePlayerSlug() {
     // straight shot at a cruiser's front deals only 6 now (24 x 0.25),
     // so the base damage has to carry the front hits; flank hits deal
     // the full 24. Pass 3 rebalance, step 5.
-    dmg: 24,
+    // Moonshadow Veil relic: +10% slug damage. Overcharged Rails
+    // (workshop): +2 slug damage per owned level.
+    dmg: Math.round((24 + world.workshop.slugDamageBonus()) * world.relics.slugMul()),
     life: 2.5,
     pierce: 0,
     trail: [],
@@ -265,11 +285,18 @@ function autoplayStep() {
   }
   // If plasma is low, harvest the nearest comet instead.
   if (!target && world.comets.length) target = world.comets[0];
-  if (world.plasma < 35 && world.comets.length) {
-    let bd = Infinity;
-    for (const c of world.comets) {
-      const d = Math.hypot(c.x - STAR_X, c.y - STAR_Y);
-      if (d < bd) { bd = d; target = c; }
+  // Harvest comets while plasma is below 300 and nothing threatens the
+  // star — comet plasma funds the ring, and the first harvest earns the
+  // Anchor Plating relic (Pass 6). Defense first: a close enemy keeps
+  // the aim, so this never costs the Forge its early defense.
+  if (world.plasma < 300 && world.comets.length) {
+    const threat = world.enemies.some((e) => Math.hypot(e.x - STAR_X, e.y - STAR_Y) < 300);
+    if (!threat) {
+      let bd = Infinity;
+      for (const c of world.comets) {
+        const d = Math.hypot(c.x - STAR_X, c.y - STAR_Y);
+        if (d < bd) { bd = d; target = c; }
+      }
     }
   }
   if (target) {
@@ -297,13 +324,18 @@ function autoplayStep() {
   if (world.structures.some((s) => s.orbitR < 135)) world.structureManager.boostAll();
   // Buy tech in priority order when affordable.
   for (const id of TECH_PRIORITY) {
-    if (id === 'reinforced' && world.core > 70) continue;
+    // Reinforced Core is a heal: skip it while the core is healthy — but
+    // at wave 7 the endgame is here, so buy it whenever affordable and
+    // the cover / win screen show 8/8 owned (Pass 6).
+    if (id === 'reinforced' && world.core > 70 && world.wave < 7) continue;
     if (world.tech.buy(id)) break;
   }
-  // Nova when the field is crowded.
+  // Nova when the field is crowded, or at a wounded boss: the superweapon
+  // must actually fire in a real run (Pass 5 win screens showed NOVAS 0).
   if (world.tech.owned.has('nova') && world.novaCooldown <= 0) {
     const near = world.enemies.filter((e) => Math.hypot(e.x - STAR_X, e.y - STAR_Y) < 300).length;
-    if (near >= 6) world.tech.fireNova();
+    const bossWounded = world.boss && world.boss.hp < world.boss.maxHp * 0.5;
+    if (near >= 4 || bossWounded) world.tech.fireNova();
   }
 }
 
@@ -442,10 +474,11 @@ function stageShot(name) {
       if (world.phase === 'won' || world.phase === 'lost') break;
     }
     // Action staging: keep stepping until a gold FLANK! number is on screen
-    // (flank hits land often, but the numbers only live 0.9s), so the frame
-    // shows the hook, not just a quiet moment between hits.
+    // AND fully inside the frame (a FLANK! half off the right edge reads as
+    // a glitch, not a hook), so the frame shows the hook, not just a quiet
+    // moment between hits.
     let extra = 0;
-    while (extra < 60 * 10 && !world.damageNumbers.some((d) => d.text === 'FLANK!')) {
+    while (extra < 60 * 10 && !world.damageNumbers.some((d) => d.text === 'FLANK!' && d.x > 150 && d.x < 1130 && d.y > 100 && d.y < 550)) {
       if (world.fireCooldown > 0) world.fireCooldown -= FIXED_DT;
       autoplayStep();
       world.engine.step(FIXED_DT, systems);
@@ -454,6 +487,11 @@ function stageShot(name) {
     }
     window.__gravitas.autoplay = false;
     if (world.phase === 'playing') {
+      // Action staging: drop any damage number outside the central frame
+      // (a second FLANK! clipped by the top edge reads as a glitch).
+      world.damageNumbers = world.damageNumbers.filter(
+        (d) => d.x > 100 && d.x < 1180 && d.y > 90 && d.y < 580,
+      );
       // Action staging: show the run's real peak chain (at least x8, capped
       // at the x12 score-multiplier cap), and exactly two structures stay
       // decayed so the Q boost stays READY without six DECAY! Q labels.
@@ -550,16 +588,33 @@ function stageShot(name) {
       world.damageNumbers = world.damageNumbers.filter(
         (d) => Math.abs(d.x - BOSS_X) < 120 && Math.abs(d.y - BOSS_Y) < 120,
       );
+      // The banner names the phase, not the boss: the boss bar above
+      // already names THE VOID MAW, and the name + phase + ability must
+      // appear exactly once in the frame, not twice (Pass 6).
       world.phaseBanner = {
-        text: 'THE VOID MAW — PHASE II: LEECH SWARM',
+        text: 'PHASE II: LEECH SWARM',
         sub: 'Leeches spawn twice as fast',
         timer: 2.5,
       };
+      // Cover density (Pass 6): the bottom quadrants read empty black
+      // once the wave-7 trickle thins out, so two cruisers and two
+      // asteroids join the frame at fixed lower-quadrant positions —
+      // real enemies, mid-approach, not painted on.
+      const extra = [
+        ['cruiser', 320, 500],
+        ['cruiser', 960, 500],
+        ['asteroid', 300, 430],
+        ['asteroid', 980, 430],
+      ];
+      for (const [kind, x, y] of extra) {
+        world.enemies.push(world.director.makeEnemy(kind, ENEMIES[kind], x, y));
+      }
       // Cover staging: zoom the tactical camera about the star so the boss
-      // renders visibly bigger than the Pass 3 cover (the aim arc now draws
-      // in world space, so it stays true under zoom).
-      world.engine.camera.zoom = 1.3;
-      world.engine.camera.targetZoom = 1.3;
+      // renders visibly bigger than the star's core (Pass 6: the boss must
+      // be the biggest AND brightest element in the frame). The aim arc
+      // draws in world space, so it stays true under zoom.
+      world.engine.camera.zoom = 1.5;
+      world.engine.camera.targetZoom = 1.5;
     }
     aimAtNearestEnemy();
   } else if (name === 'win') {
@@ -646,12 +701,19 @@ window.__gravitas = {
       enemies: world.enemies.length,
       structures: world.structures.length,
       tech: [...world.tech.owned],
+      relics: world.relics.count,
+      relicNames: world.relics.list.map((r) => r.id),
+      salvageBank: world.workshop.bank,
+      workshopOwned: world.workshop.ownedCount(),
+      novas: world.novaUsed,
+      lances: world.lanceFired,
       bossHp: world.boss ? Math.round(world.boss.hp) : null,
       bossPhase: world.boss ? world.boss.phase : null,
       flankHits: world.flankHits,
       flankSounds: audio.flankSounds,
       shots: world.shots,
       hits: world.hits,
+      playerHits: world.playerHits,
       time: Math.round(world.time),
     };
   },

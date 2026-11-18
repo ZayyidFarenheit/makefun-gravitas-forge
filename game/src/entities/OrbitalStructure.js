@@ -47,7 +47,8 @@ export class OrbitalStructure {
   update(dt) {
     const w = this.world;
     // Orbit decay: the ring pulls inward; below 110 the structure burns up.
-    this.orbitR -= this.decayRate * dt;
+    // Ith's Grasp relic: decay runs at 60% speed.
+    this.orbitR -= this.decayRate * w.relics.decayMul() * dt;
     if (this.orbitR < 110) {
       w.engine.burst(this.x, this.y, 16, '#ff5d73', 140);
       const idx = w.structures.indexOf(this);
@@ -59,8 +60,10 @@ export class OrbitalStructure {
     this.y = STAR_Y + Math.sin(this.angle) * this.orbitR;
     if (this.cooldown > 0) this.cooldown -= dt;
     const def = STRUCTURE_DEFS[this.kind];
-    const rateMul = w.tech.owned.has('rapid') ? 1.25 : 1;
-    const dmgMul = w.tech.owned.has('overcharge') ? 1.25 : 1;
+    // Rapid Orbit relic: structures fire 10% faster.
+    const rateMul = (w.tech.owned.has('rapid') ? 1.25 : 1) * w.relics.fireRateMul();
+    // Vey's Edge relic: structures deal +15% damage.
+    const dmgMul = (w.tech.owned.has('overcharge') ? 1.25 : 1) * w.relics.damageMul();
     if (this.kind === 'repulsor') {
       // Push enemies away from the star inside the repulsor field.
       // The dreadnought is too massive to move.
@@ -87,7 +90,8 @@ export class OrbitalStructure {
     }
     if (!best) return;
     this.cooldown = 1 / (def.rate * rateMul);
-    const pellets = this.kind === 'flak' && w.tech.owned.has('burst') ? 5 : this.kind === 'flak' ? 3 : 1;
+    // Flak Burst relic: +1 pellet on every flak volley.
+    const pellets = this.kind === 'flak' ? 3 + (w.tech.owned.has('burst') ? 2 : 0) + w.relics.flakBonus() : 1;
     for (let i = 0; i < pellets; i++) {
       // Lead by the slug's average flight speed (SLUG_LEAD_SPEED): star
       // gravity slows every slug down along the way.
@@ -119,16 +123,20 @@ export class StructureManager {
   }
 
   // Build a structure if the player can afford it and a slot is free.
+  // Orbital Foundry (workshop): each owned level adds one slot above the
+  // base 8. The 'rapid' relic is earned on the first structure built.
   build(kind) {
     const w = this.world;
     const def = STRUCTURE_DEFS[kind];
     if (!def) return false;
-    if (w.structures.length >= MAX_STRUCTURES) return false;
+    const maxSlots = MAX_STRUCTURES + w.workshop.slotsBonus();
+    if (w.structures.length >= maxSlots) return false;
     if (w.plasma < def.cost.plasma || w.ore < def.cost.ore) return false;
     w.plasma -= def.cost.plasma;
     w.ore -= def.cost.ore;
     w.structures.push(new OrbitalStructure(kind, w));
     w.structuresBuilt++;
+    w.relics.grant('rapid');
     w.engine.burst(STAR_X, STAR_Y, 10, def.color, 100);
     return true;
   }

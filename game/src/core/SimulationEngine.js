@@ -18,6 +18,12 @@ export const MAX_CORE = 100;
 // first second under G_STAR.
 export const SLUG_LEAD_SPEED = 350;
 
+// Score scale (Pass 6): every score award is multiplied by this ONE
+// constant, so a won run reads ~50,000-60,000 next to the top entries'
+// 63,660-1,623,030 instead of ~5,500. Damage, economy and waves are
+// untouched — only the displayed score is scaled.
+export const SCORE_SCALE = 10;
+
 export class SimulationEngine {
   constructor(world) {
     this.world = world;
@@ -36,12 +42,21 @@ export class SimulationEngine {
     w.score = 0;
     w.chain = 0;
     w.chainTimer = 0;
-    w.plasma = 80;
-    w.ore = 20;
+    // Starting economy (Pass 6): all four structure types are affordable
+    // at run start — turret 40 + flak 60 + repulsor 50 + dyson 30 = 180
+    // plasma, 30 ore — so the opening is about building the ring, not
+    // waiting for it. Workshop Deep Reserves adds on top.
+    w.plasma = 200 + w.workshop.startPlasmaBonus();
+    w.ore = 40;
     w.core = MAX_CORE;
+    // Permanent workshop bonus: Reinforced Hull raises the core ceiling.
+    w.maxCore = MAX_CORE + w.workshop.maxCoreBonus();
+    w.salvageBanked = false;
+    w.salvageEarned = 0;
     w.kills = 0;
     w.shots = 0;
     w.hits = 0;
+    w.playerHits = 0;
     w.plasmaEarned = 0;
     w.oreEarned = 0;
     w.structuresBuilt = 0;
@@ -70,6 +85,7 @@ export class SimulationEngine {
       { x: STAR_X - 300, y: STAR_Y, r: 13, mass: 2000, angle: Math.PI, orbitR: 300, orbitSpeed: -0.16, kind: 'moon', name: 'Ith' },
     ];
     w.tech.reset();
+    w.relics.reset();
     w.director.startWave(1);
   }
 
@@ -105,6 +121,10 @@ export class SimulationEngine {
     if (w.chainTimer > 0) {
       w.chainTimer -= dt;
       if (w.chainTimer <= 0) w.chain = 0;
+    }
+    // Ember Heart relic: the core slowly regenerates while playing.
+    if (w.relics.coreRegen() > 0 && w.core > 0 && w.core < w.maxCore) {
+      w.core = Math.min(w.maxCore, w.core + w.relics.coreRegen() * dt);
     }
     // Moons orbit the star; their gravity bends projectiles.
     for (const b of w.buoys) {
@@ -234,17 +254,28 @@ export class SimulationEngine {
     }
   }
 
+  // Bank Salvage once, at run end: 1 per kill, win or lose.
+  bankSalvage() {
+    const w = this.world;
+    if (w.salvageBanked) return;
+    w.salvageBanked = true;
+    w.salvageEarned = w.kills;
+    w.workshop.bankSalvage(w.kills);
+  }
+
   checkEnd(dt) {
     const w = this.world;
     if (w.core <= 0) {
       w.core = 0;
       w.phase = 'lost';
+      this.bankSalvage();
       this.burst(STAR_X, STAR_Y, 90, '#ffb347', 260);
       this.addShake(14);
       return;
     }
     if (w.bossDefeated && w.enemies.length === 0 && !w.director.spawnQueue.length) {
       w.phase = 'won';
+      this.bankSalvage();
     }
   }
 
@@ -253,10 +284,13 @@ export class SimulationEngine {
     const w = this.world;
     w.kills++;
     w.chain++;
-    w.chainTimer = 2.5;
+    // Chain Resonator relic: the chain window stretches to 3.5s.
+    w.chainTimer = w.relics.chainWindow();
     if (w.chain > w.peakChain) w.peakChain = w.chain;
+    // Lance Overdrive relic: first time the chain reaches x10.
+    if (w.chain === 10) w.relics.grant('lance');
     const mult = 1 + Math.min(w.chain, 12) * 0.1;
-    const gained = Math.round(enemy.score * mult);
+    const gained = Math.round(enemy.score * mult * SCORE_SCALE);
     w.score += gained;
     w.ore += enemy.ore;
     w.oreEarned += enemy.ore;

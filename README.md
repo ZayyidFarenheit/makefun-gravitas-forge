@@ -1,4 +1,4 @@
-# GRAVITAS FORGE: bend shots around black hole moons to flank armored cruisers, 7 waves, 8 techs, 4 structures, 2 superweapons, boss The Void Maw
+# GRAVITAS FORGE: bend shots around black hole moons to flank armored cruisers, 7 waves, 8 techs, 12 relics, 4 structures, 2 superweapons, boss The Void Maw, a permanent workshop
 
 [![make.fun](https://make.fun/badge/best-game-01.svg)](https://make.fun/bounty/best-game-01)
 [![rank](https://make.fun/badge/best-game-01/ZayyidFarenheit/makefun-gravitas-forge/rank.svg)](https://make.fun/bounty/best-game-01)

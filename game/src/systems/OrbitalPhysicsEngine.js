@@ -3,7 +3,7 @@
 // every projectile), orbital velocity stabilization, and the multi-step
 // predictive trajectory curve the player aims with (dotted arcs).
 
-import { STAR_X, STAR_Y, STAR_R } from '../core/SimulationEngine.js';
+import { STAR_X, STAR_Y, STAR_R, SCORE_SCALE } from '../core/SimulationEngine.js';
 
 // Gravity constants. G_STAR is large on purpose: a slug fired at 520 px/s
 // tangentially past the star at ~200px must bend >=60px over 1s of flight,
@@ -141,6 +141,10 @@ export class OrbitalPhysicsEngine {
         flank = facing <= 0.7071;
       }
       w.hits++;
+      // Player-slug accuracy (Pass 6): only the player's own slugs count
+      // toward ACCURACY — structure shots and flak pellets are not the
+      // player's aim, so counting them made the stat read 100% (vanity).
+      if (p.from === 'player') w.playerHits++;
       this.damageEnemy(e, dmg, w, j, flank);
       if (p.pierce) {
         p.pierce--;
@@ -157,14 +161,20 @@ export class OrbitalPhysicsEngine {
       const dy = p.y - c.y;
       if (dx * dx + dy * dy > (c.radius + 4) * (c.radius + 4)) continue;
       w.hits++;
+      if (p.from === 'player') w.playerHits++;
       c.hp -= p.dmg;
       w.projectiles.splice(i, 1);
       if (c.hp <= 0) {
-        w.plasma += 15;
-        w.plasmaEarned += 15;
-        w.score += 5;
+        // Comet Magnet relic: +10 plasma per comet. Rich Comets
+        // (workshop): +5 plasma per comet per owned level.
+        const gain = 15 + w.relics.cometBonus() + w.workshop.cometPlasmaBonus();
+        w.plasma += gain;
+        w.plasmaEarned += gain;
+        w.score += 5 * SCORE_SCALE;
+        // Anchor Plating relic: the first comet harvest of the run.
+        w.relics.grant('plating');
         w.engine.burst(c.x, c.y, 14, '#7df9ff', 130);
-        w.engine.addDamageNumber(c.x, c.y - 10, '+15 PLASMA', '#7df9ff');
+        w.engine.addDamageNumber(c.x, c.y - 10, '+' + gain + ' PLASMA', '#7df9ff');
         w.comets.splice(j, 1);
       }
       return;
@@ -216,11 +226,13 @@ export class OrbitalPhysicsEngine {
       if (e.kind === 'leech') e.drainTimer = (e.drainTimer || 0) + dt;
       // Impact on the Forge-Star.
       if (d < STAR_R + e.radius * 0.6) {
-        w.core -= e.dmg;
+        // Anchor Plating relic: core damage x0.85.
+        const dmgTaken = Math.max(1, Math.round(e.dmg * w.relics.coreDamageMul()));
+        w.core -= dmgTaken;
         w.chain = 0;
         w.engine.burst(e.x, e.y, 18, '#ff5d73', 170);
         w.engine.addShake(6);
-        w.engine.addDamageNumber(STAR_X, STAR_Y - STAR_R - 14, '-' + e.dmg + ' CORE', '#ff5d73');
+        w.engine.addDamageNumber(STAR_X, STAR_Y - STAR_R - 14, '-' + dmgTaken + ' CORE', '#ff5d73');
         if (e.kind === 'dreadnought') {
           // The maw does not die on impact: it tears a chunk out of the
           // Forge and swings back out for another pass until it is killed.

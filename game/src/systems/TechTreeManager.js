@@ -41,7 +41,10 @@ export class TechTreeManager {
     w.ore -= t.cost.ore;
     this.owned.add(id);
     if (id === 'reinforced') {
-      w.core = Math.min(w.core + 40, 140);
+      // Reinforced Core raises the ceiling permanently for this run (the
+      // workshop's Reinforced Hull already raised it at run start).
+      w.maxCore += 40;
+      w.core = Math.min(w.core + 40, w.maxCore);
     }
     w.engine.burst(STAR_X, STAR_Y, 18, '#7df9ff', 150);
     return true;
@@ -54,6 +57,8 @@ export class TechTreeManager {
     const dysons = w.structures.filter((s) => s.kind === 'dyson').length;
     let rate = 1.5 + dysons * 4;
     if (this.owned.has('siphon')) rate *= 1.5;
+    // Siphon Coil relic: +25% plasma income.
+    rate *= w.relics.plasmaMul();
     const leeches = w.enemies.filter((e) => e.kind === 'leech').length;
     rate = Math.max(0, rate - leeches * 1.5);
     return rate;
@@ -67,7 +72,8 @@ export class TechTreeManager {
     if (!this.owned.has('lance')) return;
     w.lanceTimer -= dt;
     if (w.lanceTimer > 0) return;
-    w.lanceTimer = 12;
+    // Lance Overdrive relic: the lance cycles every 9s instead of 12s.
+    w.lanceTimer = w.relics.lanceInterval();
     // Aim at the toughest enemy alive (boss first, then nearest cruiser).
     let target = w.boss || null;
     if (!target) {
@@ -80,10 +86,11 @@ export class TechTreeManager {
     if (!target && w.enemies.length) target = w.enemies[0];
     if (!target) return;
     const a = Math.atan2(target.y - STAR_Y, target.x - STAR_X);
+    // Lance Capacitor (workshop): +20 lance damage per owned level.
     w.projectiles.push({
       x: STAR_X, y: STAR_Y,
       vx: Math.cos(a) * 640, vy: Math.sin(a) * 640,
-      dmg: 120, life: 2.5, pierce: 6, trail: [], from: 'lance',
+      dmg: 120 + w.workshop.lanceDamageBonus(), life: 2.5, pierce: 6, trail: [], from: 'lance',
       color: '#e0aaff',
     });
     w.lanceFired++;
@@ -95,7 +102,8 @@ export class TechTreeManager {
     const w = this.world;
     if (!this.owned.has('nova')) return false;
     if (w.novaCooldown > 0) return false;
-    w.novaCooldown = 20;
+    // Nova Capacitor relic: the nova recharges in 14s instead of 20s.
+    w.novaCooldown = w.relics.novaCooldown();
     w.novaUsed++;
     w.engine.burst(STAR_X, STAR_Y, 60, '#ff9e5e', 320);
     w.engine.addShake(9);

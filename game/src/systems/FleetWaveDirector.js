@@ -4,6 +4,7 @@
 // THE VOID MAW on the final wave. Also runs the title-screen demo trickle.
 
 import { STAR_X, STAR_Y } from '../core/SimulationEngine.js';
+import { WAVE_RELICS } from './RelicVault.js';
 
 // Enemy kinds. behavior: 'star' dives at the Forge-Star, 'leech' drains energy,
 // 'boss' is the dreadnought. shielded kinds take 75% less from the front.
@@ -20,8 +21,12 @@ export const ENEMIES = {
 };
 
 // [kind, count, gapSeconds] per wave. Wave 7 is the boss plus a trickle.
+// Wave 1 (Pass 6): two Shield-Cruisers join the asteroid swarm so the
+// flank target exists from the first seconds — the hook must be readable
+// before wave 2. Asteroids drop 16 -> 12 to soften the opening core drain
+// (the player fumbles aim while 16 divers arrive at once).
 export const WAVES = {
-  1: [['asteroid', 16, 0.8]],
+  1: [['asteroid', 12, 0.8], ['cruiser', 2, 2.0]],
   2: [['asteroid', 10, 0.9], ['cruiser', 6, 1.5], ['comet', 4, 2.2]],
   3: [['asteroid', 14, 0.8], ['cruiser', 7, 1.3], ['leech', 4, 1.9], ['comet', 5, 2.0]],
   4: [['asteroid', 16, 0.55], ['cruiser', 8, 1.0], ['leech', 5, 1.4], ['comet', 6, 1.5]],
@@ -60,6 +65,9 @@ export class FleetWaveDirector {
       for (let i = 0; i < count; i++) this.spawnQueue.push({ kind, gap });
     }
     this.spawnTimer = 0.5;
+    // A relic is earned when each wave starts — a winning run always
+    // hits all seven, so the wave-7 boss staging already owns 12/12.
+    if (WAVE_RELICS[n - 1]) w.relics.grant(WAVE_RELICS[n - 1]);
     if (n === 7) this.spawnBoss();
   }
 
@@ -73,6 +81,8 @@ export class FleetWaveDirector {
     boss.leechRate = 0.12;
     w.enemies.push(boss);
     w.boss = boss;
+    // Moonshadow Veil relic: entering boss phase I.
+    w.relics.grant('veil');
     w.engine.addShake(10);
   }
 
@@ -157,8 +167,13 @@ export class FleetWaveDirector {
       if (phase !== w.boss.phase) {
         w.boss.phase = phase;
         const info = BOSS_PHASES[phase];
+        // Nova Capacitor relic: entering boss phase II.
+        if (phase === 2) w.relics.grant('nova');
+        // The banner names the phase, not the boss: the boss bar above
+        // already names THE VOID MAW, and the name + phase + ability
+        // must appear exactly once in the frame, not twice.
         w.phaseBanner = {
-          text: 'THE VOID MAW — ' + info.name + ': ' + info.title,
+          text: info.name + ': ' + info.title,
           sub: info.ability,
           timer: 2.5,
         };
